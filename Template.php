@@ -6,6 +6,7 @@ class Template {
 	static private $TemplatePool = array();
 	static private $AssignCallback = array();
 
+	private $assign = array();
 	private $tplName = '';
 	private $pointer = null;
 	private $lastQueuePointer = null;
@@ -162,7 +163,7 @@ class Template {
 
 	// Get the super assign tag content
 	public function getAssign($tagName) {
-		return (isset($this->assign[$tagName])) ? $this->assign[$tagName] : null;
+		return (array_key_exists($tagName, $this->assign)) ? $this->assign[$tagName] : null;
 	}
 
 	// Assign to global environment (Global Level)
@@ -177,7 +178,7 @@ class Template {
 	}
 
 	static public function GetGlobalAssign($tagName) {
-		return (isset(self::$GlobalAssign[$tagName])) ? self::$GlobalAssign[$tagName] : null;
+		return (array_key_exists($tagName, self::$GlobalAssign)) ? self::$GlobalAssign[$tagName] : null;
 	}
 
 	// Print out the parsed content from template pool on screen
@@ -438,7 +439,7 @@ class TemplateQueue {
 						$assignTag = $matches[4];
 						return Template::ExecAssignProcessor($matches[3], $assignTag);
 					} else {
-						if (isset($this->assign[$matches[4]])) {
+						if (array_key_exists($matches[4], $this->assign)) {
 							// Queue level assign
 							return $this->assign[$matches[4]];
 						} elseif (($result = $this->parent->getContainer()->getAssign($matches[4])) !== null) {
