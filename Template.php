@@ -7,7 +7,8 @@ class Template {
 	static private $AssignCallback = array();
 
 	private $tplName = '';
-	private $pointer = '';
+	private $pointer = null;
+	private $lastQueuePointer = null;
 	private $parsedContent = '';
 	private $parsed = false;
 	private $rootBlock = null;
@@ -53,6 +54,7 @@ class Template {
 			// Extract the path query in block
 			preg_match_all('/(([a-z0-9_\-]+)(\[([a-z0-9_\-\/]+)\])?)(\/?)/i', $namespace, $matches, PREG_SET_ORDER);
 
+			$this->lastQueuePointer = null;
 			if ($matches) {
 				foreach ($matches as $path) {
 					// Check the block is exists under current query
@@ -62,6 +64,7 @@ class Template {
 						if ($path[4]) {
 							// Set the pointer as target queue by specified identify name
 							$blockPointer = $blockPointer->getQueue($path[4]);
+							$this->lastQueuePointer = $blockPointer;
 						} else {
 							// If there is any path find remaining, get the queue
 							if ($path[5]) {
@@ -79,6 +82,7 @@ class Template {
 					}
 				}
 			}
+
 			// Update the pointer
 			$this->pointer = $blockPointer;
 		}
@@ -87,19 +91,19 @@ class Template {
 
 	// Create new block into queue
 	public function newBlock($identifyName = '') {
-		$this->pointer->addQueue($identifyName);
+		$this->lastQueuePointer = $this->pointer->addQueue($identifyName);
 		return $this;
 	}
 
 	// Create new block into queue after a block with specified idenetifyName
 	public function newBlockAfter($targetIdentify, $identifyName = '') {
-		$this->pointer->addQueue($identifyName, $targetIdentify, 1);
+		$this->lastQueuePointer = $this->pointer->addQueue($identifyName, $targetIdentify, 1);
 		return $this;
 	}
 
 	// Create new block into queue before a block with specified idenetifyName
 	public function newBlockBefore($targetIdentify, $identifyName = '') {
-		$this->pointer->addQueue($identifyName, $targetIdentify, 0);
+		$this->lastQueuePointer = $this->pointer->addQueue($identifyName, $targetIdentify, 0);
 		return $this;
 	}
 
@@ -128,13 +132,17 @@ class Template {
 
 	// Assign to block current queue (Block Level)
 	public function assign($variable, $value = '') {
-		if (isset($this->pointer)) {
+		if (!$this->lastQueuePointer) {
+			$this->lastQueuePointer = $this->pointer->getQueue();
+		}
+
+		if (isset($this->lastQueuePointer)) {
 			if (is_array($variable)) {
 				foreach ($variable as $tagName => $value) {
 					$this->assign($tagName, $value);
 				}
 			} else {
-				$this->pointer->assignTag($variable, $value);
+				$this->lastQueuePointer->assignTag($variable, $value);
 			}
 		}
 		return $this;
@@ -142,14 +150,12 @@ class Template {
 
 	// Assign to current file (File Level)
 	public function superAssign($variable, $value = '') {
-		if (isset($this->pointer)) {
-			if (is_array($variable)) {
-				foreach ($variable as $tagName => $value) {
-					$this->superAssign($tagName, $value);
-				}
-			} else {
-				$this->assign[$variable] = $value;
+		if (is_array($variable)) {
+			foreach ($variable as $tagName => $value) {
+				$this->superAssign($tagName, $value);
 			}
+		} else {
+			$this->assign[$variable] = $value;
 		}
 		return $this;
 	}
@@ -314,6 +320,7 @@ class TemplateQueue {
 	// Add or Update AssignTag
 	public function assignTag($variable, $value) {
 		$this->assign[$variable] = $value;
+		return $this;
 	}
 
 	// Set the block pointer
@@ -391,7 +398,7 @@ class TemplateQueue {
 			$this->pointer = $this->queue[$this->blockPointer][$identifyName];
 		}
 
-		return $this;
+		return $this->pointer;
 	}
 
 	public function parse() {
