@@ -4,6 +4,7 @@ class Template {
 	static public $LoadedTemplate = array();
 	static private $GlobalAssign = '';
 	static private $TemplatePool = array();
+	static private $AssignCallback = array();
 
 	private $tplName = '';
 	private $pointer = '';
@@ -46,11 +47,11 @@ class Template {
 				$namespace = substr($namespace, 1);
 				$blockPointer = $this->rootBlock;
 			} else {
-				$blockPointer = $this->pointer;
+				$blockPointer = $this->pointer->getCurrentQueue();
 			}
 
 			// Extract the path query in block
-			preg_match_all('/(([a-z0-9_\-]+)(\[([a-z0-9_\-\/]+)\])?)(\/?)/i'￼, $namespace, $matches, PREG_SET_ORDER);
+			preg_match_all('/(([a-z0-9_\-]+)(\[([a-z0-9_\-\/]+)\])?)(\/?)/i', $namespace, $matches, PREG_SET_ORDER);
 
 			if ($matches) {
 				foreach ($matches as $path) {
@@ -62,6 +63,7 @@ class Template {
 							// Set the pointer as target queue by specified identify name
 							$blockPointer = $blockPointer->getQueue($path[4]);
 						} else {
+							// If there is any path find remaining, get the queue
 							if ($path[5]) {
 								// Check is any queue under the block
 								if ($blockPointer->hasQueue()) {
@@ -85,19 +87,19 @@ class Template {
 
 	// Create new block into queue
 	public function newBlock($identifyName = '') {
-		$this->pointer = $this->pointer->addQueue($identifyName);
+		$this->pointer->addQueue($identifyName);
 		return $this;
 	}
 
 	// Create new block into queue after a block with specified idenetifyName
 	public function newBlockAfter($targetIdentify, $identifyName = '') {
-		$this->pointer = $this->pointer->addQueue($identifyName, $targetIdentify, 1);
+		$this->pointer->addQueue($identifyName, $targetIdentify, 1);
 		return $this;
 	}
 
 	// Create new block into queue before a block with specified idenetifyName
 	public function newBlockBefore($targetIdentify, $identifyName = '') {
-		$this->pointer = $this->pointer->addQueue($identifyName, $targetIdentify, 0);
+		$this->pointer->addQueue($identifyName, $targetIdentify, 0);
 		return $this;
 	}
 
@@ -180,6 +182,23 @@ class Template {
 			}
 			self::$TemplatePool = array();
 		}
+	}
+
+	// Create a customized assign tag processor
+	static public function CreateAssignProcessor($name, $callback) {
+		if (is_string($name) && is_callable($callback)) {
+			self::$AssignCallback[$name] = $callback;
+		}
+	}
+
+	// Execute customized assign tag processor
+	static public function ExecAssignProcessor($name, &$assignTag) {
+		if (is_string($name) && is_string($assignTag)) {
+			if (isset(self::$AssignCallback[$name])) {
+				return call_user_func_array(self::$AssignCallback[$name]￼, array($assignTag));
+			}
+		}
+		return $assignTag;
 	}
 }
 
@@ -271,6 +290,7 @@ class TemplateQueue {
 	private $assign = array();
 	private $queue = array();
 	private $blockPointer = null;
+	private $pointer = null;
 
 	public function __construct($parent, $identifyName = '') {
 		$this->parent = $parent;
@@ -305,6 +325,11 @@ class TemplateQueue {
 		return $this;
 	}
 
+	// Get Current Queue
+	public function getCurrentQueue() {
+		return $this->pointer;
+	}
+
 	// Check is there any queue under current block pointer
 	public function hasQueue() {
 		return (isset($this->queue[$this->blockPointer]) && count($this->queue[$this->blockPointer]) > 0);
@@ -322,6 +347,7 @@ class TemplateQueue {
 		return null;
 	}
 
+	// Add Queue to currrent queue
 	public function addQueue($identifyName = '', $targetIdentify = '', $append = 1) {
 		// Trim the identify name
 		$identifyName = trim($identifyName);
@@ -365,8 +391,7 @@ class TemplateQueue {
 			$this->pointer = $this->queue[$this->blockPointer][$identifyName];
 		}
 
-		// Return current pointer
-		return $this->pointer;
+		return $this;
 	}
 
 	public function parse() {
@@ -400,20 +425,25 @@ class TemplateQueue {
 
 			// Search and Replace the assigne tag
 			$parsedContent = preg_replace_callback(
-				'/({([\w_]+)})/u',
+				'/({(([\w_]+)::)?([\w_]+)})/u',
 				function($matches) {
-			    	if (isset($this->assign[$matches[2]])) {
-				    	// Queue level assign
-			    		return $this->assign[$matches[2]];
-			    	} elseif (($result = $this->parent->getContainer()->getAssign($matches[2])) !== null) {
-				    	// Template Container level assign
-			    		return $result;
-			    	} elseif (($result = Template::GetGlobalAssign($matches[2])) !== null) {
-				    	// Global level assign
-			    		return $result;
-			    	} else {
-				    	return $matches[0];
-			    	}
+					if ($matches[3]) {
+						$assignTag = $matches[4];
+						return Template::ExecAssignProcessor($matches[3], $assignTag);
+					} else {
+						if (isset($this->assign[$matches[4]])) {
+							// Queue level assign
+							return $this->assign[$matches[4]];
+						} elseif (($result = $this->parent->getContainer()->getAssign($matches[4])) !== null) {
+							// Template Container level assign
+							return $result;
+						} elseif (($result = Template::GetGlobalAssign($matches[4])) !== null) {
+							// Global level assign
+							return $result;
+						} else {
+							return $matches[0];
+						}
+					}
 				},
 				$parsedContent
 			);
