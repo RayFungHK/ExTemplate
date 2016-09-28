@@ -2,7 +2,7 @@
 class Template {
 	static public $Assign = array();
 	static public $LoadedTemplate = array();
-	static private $GlobalAssign = '';
+	static private $GlobalAssign = array();
 	static private $TemplatePool = array();
 	static private $AssignCallback = array();
 
@@ -10,13 +10,22 @@ class Template {
 	private $tplName = '';
 	private $pointer = null;
 	private $lastQueuePointer = null;
-	private $parsedContent = '';
 	private $parsed = false;
 	private $rootBlock = null;
+	private $isPostParse = false;
+	private $mapping = array();
 
 	public function __construct($tplPath, $tplName = '') {
 		$tplContent = file($tplPath);
-		$this->tplName = $tplName;
+		if ($tplName) {
+			$this->tplName = $tplName;
+		} else {
+			if (($pos = strrpos('/', $tplPath)) !== FALSE) {
+				$this->tplName = substr($tplPath, $pos + 1);
+			} else {
+				$this->tplName = $tplPath;
+			}
+		}
 
 		// Prepare template content as raw template frame
 		$rootTemplateBlock = new TemplateBlock($this, '_ROOT', $tplContent);
@@ -27,8 +36,8 @@ class Template {
 		// Setup the template pointer
 		$this->pointer = $this->rootBlock;
 
-		// Add current template to printOut queue
-		self::$LoadedTemplate[] = $this;
+		// Add current template to loaded template pool
+		self::$LoadedTemplate[$this->tplName] = $this;
 	}
 
 	// Go to target block, syntax: (/?:Root)({a-z0-9_-}/*:blockName)([{a-z0-9_-/}+]:identifyName)?(/?:NextBlock)
@@ -62,6 +71,7 @@ class Template {
 					if ($blockPointer->hasBlock($path[2])) {
 						// Set the block pointer
 						$blockPointer->setBlock($path[2]);
+
 						if ($path[4]) {
 							// Set the pointer as target queue by specified identify name
 							$blockPointer = $blockPointer->getQueue($path[4]);
@@ -73,6 +83,7 @@ class Template {
 								if ($blockPointer->hasQueue()) {
 									// Set the pointer as latest queue
 									$blockPointer = $blockPointer->getQueue();
+									$this->lastQueuePointer = $blockPointer;
 								} else {
 									throw new Exception('Cannot find any queue for next path');
 								}
@@ -108,22 +119,24 @@ class Template {
 		return $this;
 	}
 
-	// Parse all queue into parse pool or export to specified variable
-	public function parse(&$export = null) {
-		if (!$this->parsed) {
-			$this->parsedContent = $this->rootBlock->parse();
-			self::$TemplatePool[] = &$this;
-			$this->parsed = true;
-		}
-
-		if (isset($export)) {
-			$export = $this->parsedContent;
-		}
+	// Enable it when you want to parse this template in PrintOut()
+	public function setPostParse($enable) {
+		$this->isPostParse = ($enable) ? true : false;
 		return $this;
 	}
 
+	// Check the template is post-Parse or not
+	public function isPostParse() {
+		return $this->isPostParse;
+	}
+
+	// Parse all queue into parse pool or export to specified variable
+	public function parse() {
+		return $this->rootBlock->parse();
+	}
+
 	public function parseToFile() {
-		
+
 	}
 
 	// Get the parsed content
@@ -134,7 +147,11 @@ class Template {
 	// Assign to block current queue (Block Level)
 	public function assign($variable, $value = '') {
 		if (!$this->lastQueuePointer) {
-			$this->lastQueuePointer = $this->pointer->getQueue();
+			if ($this->pointer->isRoot()) {
+				$this->lastQueuePointer = $this->pointer;
+			} else {
+				$this->lastQueuePointer = $this->pointer->getQueue();
+			}
 		}
 
 		if (isset($this->lastQueuePointer)) {
@@ -166,6 +183,40 @@ class Template {
 		return (array_key_exists($tagName, $this->assign)) ? $this->assign[$tagName] : null;
 	}
 
+	public function addMapping($path, $instance) {
+		$path = $path . '/';
+		$path = preg_replace('/\/+/', '/', $path);
+		if (!isset($this->mapping[$path])) {
+			$this->mapping[$path] = array();
+		}
+		$this->mapping[$path][$instance->getIdentifyName()] = &$instance;
+		return $this;
+	}
+/*
+	public function findBlock($path) {
+		$path = preg_replace('/\/+/', '/', $path);
+		$path = rtrim('/', $path);
+		preg_match('/([^[]+)(\[[\w_+]+\])?(\/?)/i', $path, $matches, PREG_SET_ORDER);
+		if ($matches) {
+			foreach ($matches as $query) {
+				if (isset($query[2])) {
+					
+				}
+			}
+		}
+		if (isset($this->mapping[$path])) {
+			
+		}
+	}
+*/
+	// Get Template object by name
+	static public function GetTemplate($name) {
+		if (isset(self::$LoadedTemplate[$name])) {
+			return self::$LoadedTemplate[$name];
+		}
+		return null;
+	}
+
 	// Assign to global environment (Global Level)
 	static public function GlobalAssign($variable, $value = '') {
 		if (is_array($variable)) {
@@ -177,17 +228,20 @@ class Template {
 		}
 	}
 
+	// Get the global assigned value
 	static public function GetGlobalAssign($tagName) {
 		return (array_key_exists($tagName, self::$GlobalAssign)) ? self::$GlobalAssign[$tagName] : null;
 	}
 
 	// Print out the parsed content from template pool on screen
-	static public function printOut() {
-		if (count(self::$TemplatePool)) {
-			foreach (self::$TemplatePool as $template) {
-				echo $template->getParsedContent();
+	static public function PrintOut() {
+		if (count(self::$LoadedTemplate)) {
+			foreach (self::$LoadedTemplate as $loadedTemplate) {
+				if ($loadedTemplate->isPostParse()) {
+					$loadedTemplate->setPostParse(false);
+					echo $loadedTemplate->parse();
+				}
 			}
-			self::$TemplatePool = array();
 		}
 	}
 
@@ -199,24 +253,24 @@ class Template {
 	}
 
 	// Execute customized assign tag processor
-	static public function ExecAssignProcessor($name, &$assignTag) {
-		if (is_string($name) && is_string($assignTag)) {
-			if (isset(self::$AssignCallback[$name])) {
-				return call_user_func_array(self::$AssignCallback[$name]￼, array($assignTag));
-			}
+	static public function ExecAssignProcessor($name, $argument) {
+		if (isset(self::$AssignCallback[$name])) {
+			return call_user_func_array(self::$AssignCallback[$name], $argument);
 		}
-		return $assignTag;
+		return '';
 	}
 }
 
 class TemplateBlock {
 	private $blockName = '';
 	private $blockType = 'BLOCK';
-	private $blockContent = Array();
+	private $blockContent = array();
+	private $blockTypeMapping = array();
 	private $templateContainer = null;
 	private $lastIndex = 0;
 	private $parentBlock;
 	private $isRoot = false;
+	private $path = '';
 
 	public function __construct($templateContainer, $blockName, $tplContent, $offset = 0, $blockType = 'BLOCK', $parentBlock = null) {
 		// Setup the block name, type and parent
@@ -224,6 +278,13 @@ class TemplateBlock {
 		$this->blockType = $blockType;
 		$this->parentBlock = $parentBlock;
 		$this->templateContainer = $templateContainer;
+
+		if (is_null($parentBlock)) {
+			$this->isRoot = true;
+			$this->path = '/';
+		} else {
+			$this->path = $parentBlock->getPath() . $blockName . '/';
+		}
 
 		for ($index = $offset, $length = count($tplContent); $index < $length; $index++) {
 			// Check if it is a block tag
@@ -233,6 +294,10 @@ class TemplateBlock {
 					$tplObject = new TemplateBlock($this->templateContainer, $matches[3], $tplContent, $index + 1, $matches[2], $this);
 
 					$this->blockContent[$matches[3]] = $tplObject;
+					if (!isset($this->blockTypeMapping[$matches[2]])) {
+						$this->blockTypeMapping[$matches[2]] = array();
+					}
+					$this->blockTypeMapping[$matches[2]][]  = $tplObject;
 					// Skip the processed line
 					$index = $tplObject->lastIndex;
 				} elseif ($matches[1] == 'END') {
@@ -252,13 +317,17 @@ class TemplateBlock {
 
 		$this->lastIndex = $index;
 		// If the parentBlock is null, set it as Root
-		if (is_null($parentBlock)) {
-			$this->isRoot = true;
-		}
+	}
+
+	public function getPath() {
+		return $this->path;
 	}
 
 	// Check the block is exists or not under current block
-	public function hasBlock($blockName) {
+	public function hasBlock($blockName, $blockType = '') {
+		if ($blockType) {
+			return (isset($this->blockTypeMapping[$blockType][$blockName]));
+		}
 		return (isset($this->blockContent[$blockName]));
 	}
 
@@ -268,6 +337,11 @@ class TemplateBlock {
 			return $this->blockContent[$blockName];
 		}
 		return null;
+	}
+
+	// Get the current block type
+	public function getBlockType() {
+		return $this->blockType;
 	}
 
 	// Get stored block content
@@ -324,6 +398,11 @@ class TemplateQueue {
 		return $this;
 	}
 
+	// Get the block is root or not
+	public function isRoot() {
+		return $this->parent->isRoot();
+	}
+
 	// Set the block pointer
 	public function setBlock($blockName) {
 		if (!isset($this->queue[$blockName])) {
@@ -333,9 +412,19 @@ class TemplateQueue {
 		return $this;
 	}
 
+	// Get All Queues
+	public function getAllQueues() {
+		return (isset($this->queue[$this->blockPointer])) ? $this->queue[$this->blockPointer] : array();
+	}
+
 	// Get Current Queue
 	public function getCurrentQueue() {
 		return $this->pointer;
+	}
+
+	// Get Current Block Template
+	public function getBlockTemplate() {
+		return $this->parent->getBlock($this->blockPointer);
 	}
 
 	// Check is there any queue under current block pointer
@@ -350,7 +439,7 @@ class TemplateQueue {
 				return $this->queue[$this->blockPointer][$identifyName];
 			}
 		} else {
-			return end($this->queue[$this->blockPointer]);
+			return (count($this->queue[$this->blockPointer])) ? end($this->queue[$this->blockPointer]) : null;
 		}
 		return null;
 	}
@@ -402,6 +491,10 @@ class TemplateQueue {
 		return $this->pointer;
 	}
 
+	public function getTemplate() {
+		return $this->parent;
+	}
+
 	public function parse() {
 		// Get the parent template block content
 		$templateContent = $this->parent->getBlockContent();
@@ -409,6 +502,18 @@ class TemplateQueue {
 		// Initialize
 		$readyParseBlock = array();
 		$parsedContent = '';
+
+		// ISEXISTS Block
+		if ($this->parent->getBlockType() == 'IFEXISTS') {
+			if (count($this->queue, COUNT_RECURSIVE) - count($this->queue) == 0) {
+				return '';
+			}
+		}
+
+		// IFNOTEXISTS Block
+		if ($this->parent->getBlockType() == 'IFNOTEXISTS') {
+			
+		}
 
 		if (count($templateContent)) {
 			foreach ($templateContent as $identifyName => $content) {
@@ -431,27 +536,58 @@ class TemplateQueue {
 				}
 			}
 
-			// Search and Replace the assigne tag
+			// Caller Process
 			$parsedContent = preg_replace_callback(
-				'/({(([\w_]+)::)?([\w_]+)})/u',
+				'/{{((?>.|(?R))*)}}/u',
 				function($matches) {
-					if ($matches[3]) {
-						$assignTag = $matches[4];
-						return Template::ExecAssignProcessor($matches[3], $assignTag);
-					} else {
-						if (array_key_exists($matches[4], $this->assign)) {
-							// Queue level assign
-							return $this->assign[$matches[4]];
-						} elseif (($result = $this->parent->getContainer()->getAssign($matches[4])) !== null) {
-							// Template Container level assign
-							return $result;
-						} elseif (($result = Template::GetGlobalAssign($matches[4])) !== null) {
-							// Global level assign
-							return $result;
-						} else {
-							return $matches[0];
+					if ($matches[1]) {
+						$tag = explode('::', $matches[1]);
+						if (isset($tag[0])) {
+							$command = explode(' ', $tag[0]);
+							$caller = array_shift($command);
+							$argument = array(
+								$command,
+								(isset($tag[1])) ? $tag[1] : ''
+							);
+
+							// Default Processor 'Switch': If value is true, return the content
+							if ($caller == 'SWITCH') {
+								if (isset($command[0])) {
+									if (array_key_exists($command[0], $this->assign) && $this->assign[$command[0]]) {
+										// Queue level assign
+										return (isset($tag[1])) ? $tag[1] : '';
+									} elseif (($result = $this->parent->getContainer()->getAssign($command[0]))) {
+										// Template Container level assign
+										return (isset($tag[1])) ? $tag[1] : '';
+									} elseif (($result = Template::GetGlobalAssign($command[0]))) {
+										// Global level assign
+										return (isset($tag[1])) ? $tag[1] : '';
+									}
+								}
+							} else {
+								return Template::ExecAssignProcessor($caller, $argument);
+							}
 						}
 					}
+					return '';
+				},
+				$parsedContent
+			);
+			// Search and Replace the assigne tag
+			$parsedContent = preg_replace_callback(
+				'/{([\w_]+)}/u',
+				function($matches) {
+					if (array_key_exists($matches[1], $this->assign)) {
+						// Queue level assign
+						return $this->assign[$matches[1]];
+					} elseif (($result = $this->parent->getContainer()->getAssign($matches[1])) !== null) {
+						// Template Container level assign
+						return $result;
+					} elseif (($result = Template::GetGlobalAssign($matches[1])) !== null) {
+						// Global level assign
+						return $result;
+					}
+					return $matches[0];
 				},
 				$parsedContent
 			);
