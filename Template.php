@@ -988,7 +988,7 @@ class TemplateQueue {
 
 			// Caller Process
 			$parsedContent = preg_replace_callback(
-				'/{{((?>.|(?R))*)}}/u',
+				'/{{((?>.|(?R))*)}}/U',
 				function($matches) {
 					if ($matches[1]) {
 						$tag = explode('::', $matches[1]);
