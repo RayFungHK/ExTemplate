@@ -15,6 +15,14 @@ class Template {
 	private $isPostParse = false;
 	private $mapping = array();
 
+	/**
+	 * constructor, convert template file into TemplateStructure
+	 * 
+	 * @access public
+	 * @param string $tplPath
+	 * @param string $tplName (default: '')
+	 * @return void
+	 */
 	public function __construct($tplPath, $tplName = '') {
 		$tplContent = file($tplPath);
 		if ($tplName) {
@@ -27,8 +35,8 @@ class Template {
 			}
 		}
 
-		// Prepare template content as raw template frame
-		$rootTemplateBlock = new TemplateBlock($this, '_ROOT', $tplContent);
+		// Convert HTML to TemplateStructure
+		$rootTemplateBlock = new TemplateStructure($this, '_ROOT', $tplContent);
 
 		// Create a new queue in Root block
 		$this->rootBlock = new TemplateQueue($rootTemplateBlock);
@@ -40,8 +48,14 @@ class Template {
 		self::$LoadedTemplate[$this->tplName] = $this;
 	}
 
-	// Go to target block, syntax: (/?:Root)({a-z0-9_-}/*:blockName)([{a-z0-9_-/}+]:identifyName)?(/?:NextBlock)
-	// Example: /blockA/blockB[identifyA]/blockC
+	/**
+	 * Go to target block, syntax: (/?:Root)({a-z0-9_-}/*:blockName)([{a-z0-9_-/}+]:identifyName)?(/?:NextBlock)
+	 * Example: /blockA/blockB[identifyA]/blockC
+	 * 
+	 * @access public
+	 * @param string $namespace
+	 * @return Template
+	 */
 	public function gotoBlock($namespace) {
 		// Check the namespace is string or callback
 		if (is_string($namespace)) {
@@ -68,10 +82,10 @@ class Template {
 			if ($matches) {
 				foreach ($matches as $path) {
 					// Check the block is exists under current query
-					if ($blockPointer->hasBlock($path[2])) {
+					if ($blockPointer->getStructure()->hasBlock($path[2])) {
 						// Set the block pointer
-						$blockPointer->setBlock($path[2]);
-
+						$blockPointer->setPointer($path[2]);
+						
 						if ($path[4]) {
 							// Set the pointer as target queue by specified identify name
 							$blockPointer = $blockPointer->getQueue($path[4]);
@@ -101,53 +115,144 @@ class Template {
 		return $this;
 	}
 
-	// Create new block into queue
+
+	/**
+	 * Back to parent level queue, or you can provide specified block name 
+	 * with identify name until the pointer reach to root
+	 *
+	 * @access public
+	 * @param string $namespace (default: '')
+	 * @return Template
+	 */
+	public function parent($namespace = '') {
+		$namespace = trim($namespace);
+		if ($namespace) {
+			$identifyName = '';
+			if (preg_match('/(.*)(\[((?>.|(?R))*)\])/', $namespace, $matches)) {
+				$blockName = $matches[1];
+				$identifyName = $matches[3];
+			} else {
+				$blockName = $namespace;
+			}
+
+			do {
+				if ($this->pointer->getStructure()->getBlockName() == $blockName) {
+					// Go to parent queue and set the pointer
+					$this->pointer = $this->pointer->getParent();
+					$this->pointer->setPointer($blockName);
+					$this->lastQueuePointer = ($identifyName) ? $this->pointer->getQueue($identifyName) : $this->pointer->getCurrentQueue();
+					return $this;
+				}
+			} while ($this->pointer = $this->pointer->getParent());
+
+			// If the pointer reach the root, reset
+			$this->pointer = $this->rootBlock;
+			$this->lastQueuePointer = null;
+		} else {
+			$this->pointer = $this->pointer->getParent();
+			if (!$this->pointer) {
+				$this->pointer = $this->rootBlock;
+				$this->lastQueuePointer = null;
+			} else {
+				$this->lastQueuePointer = $this->pointer->getCurrentQueue();
+			}
+		}
+		return $this;
+	}
+
+	/**
+	 * Create new block into queue
+	 * 
+	 * @access public
+	 * @param string $identifyName (default: '')
+	 * @return Template
+	 */
 	public function newBlock($identifyName = '') {
 		$this->lastQueuePointer = $this->pointer->addQueue($identifyName);
 		return $this;
 	}
 
-	// Create new block into queue after a block with specified idenetifyName
+	/**
+	 * Create new block into queue after a block with specified idenetifyName
+	 * 
+	 * @access public
+	 * @param string $targetIdentify
+	 * @param string $identifyName (default: '')
+	 * @return Template
+	 */
 	public function newBlockAfter($targetIdentify, $identifyName = '') {
 		$this->lastQueuePointer = $this->pointer->addQueue($identifyName, $targetIdentify, 1);
 		return $this;
 	}
 
-	// Create new block into queue before a block with specified idenetifyName
+	/**
+	 * Create new block into queue before a block with specified idenetifyName
+	 * 
+	 * @access public
+	 * @param string $targetIdentify
+	 * @param string $identifyName (default: '')
+	 * @return Template
+	 */
 	public function newBlockBefore($targetIdentify, $identifyName = '') {
 		$this->lastQueuePointer = $this->pointer->addQueue($identifyName, $targetIdentify, 0);
 		return $this;
 	}
 
-	// Enable it when you want to parse this template in PrintOut()
+	/**
+	 * Set this template to PrintOut queue.
+	 * 
+	 * @access public
+	 * @param mixed $enable
+	 * @return Template
+	 */
 	public function setPostParse($enable) {
 		$this->isPostParse = ($enable) ? true : false;
 		return $this;
 	}
 
-	// Check the template is post-Parse or not
+	/**
+	 * Check the template is post-Parse or not
+	 * 
+	 * @access public
+	 * @return bool
+	 */
 	public function isPostParse() {
 		return $this->isPostParse;
 	}
 
-	// Parse all queue into parse pool or export to specified variable
+	/**
+	 * Parse all queue into parse pool or export to specified variable
+	 * 
+	 * @access public
+	 * @return string
+	 */
 	public function parse() {
 		return $this->rootBlock->parse();
 	}
 
-	public function parseToFile() {
-
-	}
-
-	// Get the parsed content
+	/**
+	 * Get the parsed content
+	 * 
+	 * @access public
+	 * @return bool
+	 */
 	public function getParsedContent() {
 		return $this->parsedContent;
 	}
 
-	// Assign to block current queue (Block Level)
+	/**
+	 * Assign to block current queue (Block Level)
+	 * If variable is a callback function, pass the current assign tag and
+	 * reassigned the tag value
+	 * 
+	 * @access public
+	 * @param mixed $variable
+	 * @param string $value (default: '')
+	 * @return Template
+	 */
 	public function assign($variable, $value = '') {
 		if (!$this->lastQueuePointer) {
-			if ($this->pointer->isRoot()) {
+			if ($this->pointer->getStructure()->isRoot()) {
 				$this->lastQueuePointer = $this->pointer;
 			} else {
 				$this->lastQueuePointer = $this->pointer->getQueue();
@@ -155,18 +260,145 @@ class Template {
 		}
 
 		if (isset($this->lastQueuePointer)) {
-			if (is_array($variable)) {
-				foreach ($variable as $tagName => $value) {
-					$this->assign($tagName, $value);
+			if (is_callable($variable)) {
+				$newAssigned = $variable($this->lastQueuePointer->getAssigned());
+				if (is_array($newAssigned) && count($newAssigned)) {
+					return $this->assign($newAssigned);
 				}
 			} else {
-				$this->lastQueuePointer->assignTag($variable, $value);
+				if (is_array($variable)) {
+					foreach ($variable as $tagName => $value) {
+						$this->assign($tagName, $value);
+					}
+				} else {
+					$this->lastQueuePointer->assignTag($variable, $value);
+				}
 			}
 		}
 		return $this;
 	}
 
-	// Assign to current file (File Level)
+	/**
+	 * Map the queue to mapping list
+	 * 
+	 * @access public
+	 * @param string $path
+	 * @param TemplateQueue $instance
+	 * @return void
+	 */
+	public function mapPath($path, $instance) {
+		if (is_a($instance, 'TemplateQueue')) {
+			if (!isset($this->mapping[$path])) {
+				$this->mapping[$path] = array();
+			}
+			$this->mapping[$path][$instance->getIdentifyName()] = $instance;
+		}
+		return $this;
+	}
+
+	/**
+	 * Mount the target queue to pointer
+	 * 
+	 * @access public
+	 * @param TemplateQueue $queue
+	 * @return Template
+	 */
+	public function mountQueue($queue) {
+		if (is_a($queue, 'TemplateQueue')) {
+			$this->pointer = $queue;
+			$this->lastQueuePointer = $this->pointer;
+		}
+		return $this;
+	}
+
+	/**
+	 * Find the target queues by namespace syntax
+	 * 
+	 * @access public
+	 * @param string $namespace
+	 * @return TemplateQueuePack
+	 */
+	public function findBlock($namespace) {
+		$namespace = trim($namespace);
+		if ($namespace) {
+			// If namespece is not start from root, merge the parent block path
+			if ($namespace[0] != '/') {
+				if (!$this->pointer->getStructure()->isRoot()) {
+					$namespace = $this->pointer->getPath() . '/' . $namespace;
+				}
+			}
+
+			// Explode the namespace by '/'
+			$delimiter = explode('/', $namespace);
+
+			// Get the target queue that we wanted
+			$targetQueue = array_pop($delimiter);
+			$identifyName = '';
+
+			// If the target is including identify name, split it
+			if (preg_match('/(.*)(\[((?>.|(?R))*)\])/', $targetQueue, $matches)) {
+				$blockName = $matches[1];
+				$identifyName = $matches[3];
+			} else {
+				$blockName = $targetQueue;
+			}
+
+			$foundQueue = array();
+			// Generate the full path of target queue
+			$orgBasicPath = implode('/', $delimiter) . '/' . $blockName;
+			// Remove any identify name
+			$basicPath = preg_replace('/(\[((?>.|(?R))*)\])/U', '', $orgBasicPath);
+
+			// Search queue mapping and get the list of queue
+			$foundQueue = array();
+			if (isset($this->mapping[$basicPath])) {
+				if ($identifyName) {
+					// Get the queue by specified identify name
+					if (isset($this->mapping[$basicPath][$identifyName])) {
+						$foundQueue = array($identifyName => $this->mapping[$basicPath][$identifyName]);
+					}
+				} else {
+					$foundQueue = $this->mapping[$basicPath];
+				}
+			}
+
+			// Because we have removed all identify name from basic path, if it has not matched as orginal basic path,
+			// we need deep scanning to filter the queue
+			if ($orgBasicPath != $basicPath) {
+				// Remove the empty clip
+				array_shift($delimiter);
+				$searchPath = '/';
+
+				// Scanning every path
+				while (($clip = array_shift($delimiter)) != null) {
+					// If the clip is including identify name, start filtering
+					if (preg_match('/(.*)(\[((?>.|(?R))*)\])/', $clip, $matches)) {
+						$index = 0;
+						$searchPath .= ($searchPath == '/') ? $matches[1] : '/' . $matches[1];
+						foreach ($foundQueue as $idenetifyName => $queue) {
+							// If the queue is not the child of parent block with specified idenitify name, remove it
+							if (!$queue->isChildOf($searchPath, $matches[1], $matches[3])) {
+								unset($foundQueue[$idenetifyName]);
+							}
+						}
+					} else {
+						$searchPath .= ($searchPath == '/') ? $clip : '/' . $clip;
+					}
+				}
+			}
+			return new TemplateQueuePack($this, $foundQueue);
+		}
+		return new TemplateQueuePack($this);
+	}
+
+	/**
+	 * Assign tag to current file (File Level)
+	 * 
+	 * @access public
+	 * @param mixed $variable
+	 * @param string $value (default: '')
+	 * @return Template
+	 */
 	public function superAssign($variable, $value = '') {
 		if (is_array($variable)) {
 			foreach ($variable as $tagName => $value) {
@@ -178,38 +410,25 @@ class Template {
 		return $this;
 	}
 
-	// Get the super assign tag content
+	/**
+	 * Return file Level assigned value
+	 * 
+	 * @access public
+	 * @param string $tagName
+	 * @return mixed
+	 */
 	public function getAssign($tagName) {
 		return (array_key_exists($tagName, $this->assign)) ? $this->assign[$tagName] : null;
 	}
 
-	public function addMapping($path, $instance) {
-		$path = $path . '/';
-		$path = preg_replace('/\/+/', '/', $path);
-		if (!isset($this->mapping[$path])) {
-			$this->mapping[$path] = array();
-		}
-		$this->mapping[$path][$instance->getIdentifyName()] = &$instance;
-		return $this;
-	}
-/*
-	public function findBlock($path) {
-		$path = preg_replace('/\/+/', '/', $path);
-		$path = rtrim('/', $path);
-		preg_match('/([^[]+)(\[[\w_+]+\])?(\/?)/i', $path, $matches, PREG_SET_ORDER);
-		if ($matches) {
-			foreach ($matches as $query) {
-				if (isset($query[2])) {
-					
-				}
-			}
-		}
-		if (isset($this->mapping[$path])) {
-			
-		}
-	}
-*/
-	// Get Template object by name
+	/**
+	 * Return Template object by name
+	 * 
+	 * @access public
+	 * @static
+	 * @param string $name
+	 * @return Template
+	 */
 	static public function GetTemplate($name) {
 		if (isset(self::$LoadedTemplate[$name])) {
 			return self::$LoadedTemplate[$name];
@@ -217,7 +436,15 @@ class Template {
 		return null;
 	}
 
-	// Assign to global environment (Global Level)
+	/**
+	 * Assign tag to global environment (Global Level)
+	 * 
+	 * @access public
+	 * @static
+	 * @param mixed $variable
+	 * @param string $value (default: '')
+	 * @return void
+	 */
 	static public function GlobalAssign($variable, $value = '') {
 		if (is_array($variable)) {
 			foreach ($variable as $tagName => $value) {
@@ -228,12 +455,25 @@ class Template {
 		}
 	}
 
-	// Get the global assigned value
+	/**
+	 * Return Global Level assigned value.
+	 * 
+	 * @access public
+	 * @static
+	 * @param string $tagName
+	 * @return mixed
+	 */
 	static public function GetGlobalAssign($tagName) {
 		return (array_key_exists($tagName, self::$GlobalAssign)) ? self::$GlobalAssign[$tagName] : null;
 	}
 
-	// Print out the parsed content from template pool on screen
+	/**
+	 * Print out the parsed content from template pool on screen
+	 * 
+	 * @access public
+	 * @static
+	 * @return void
+	 */
 	static public function PrintOut() {
 		if (count(self::$LoadedTemplate)) {
 			foreach (self::$LoadedTemplate as $loadedTemplate) {
@@ -245,14 +485,30 @@ class Template {
 		}
 	}
 
-	// Create a customized assign tag processor
+	/**
+	 * Bind and Create a customized assign tag processor
+	 * 
+	 * @access public
+	 * @static
+	 * @param string $name
+	 * @param callable $callback
+	 * @return void
+	 */
 	static public function CreateAssignProcessor($name, $callback) {
 		if (is_string($name) && is_callable($callback)) {
 			self::$AssignCallback[$name] = $callback;
 		}
 	}
 
-	// Execute customized assign tag processor
+	/**
+	 * Execute the customized assign tag processor
+	 * 
+	 * @access public
+	 * @static
+	 * @param string $name
+	 * @param mixed $argument
+	 * @return mixed
+	 */
 	static public function ExecAssignProcessor($name, $argument) {
 		if (isset(self::$AssignCallback[$name])) {
 			return call_user_func_array(self::$AssignCallback[$name], $argument);
@@ -261,7 +517,7 @@ class Template {
 	}
 }
 
-class TemplateBlock {
+class TemplateStructure {
 	private $blockName = '';
 	private $blockType = 'BLOCK';
 	private $blockContent = array();
@@ -272,6 +528,18 @@ class TemplateBlock {
 	private $isRoot = false;
 	private $path = '';
 
+	/**
+	 * constructor
+	 * 
+	 * @access public
+	 * @param Template $templateContainer
+	 * @param string $blockName
+	 * @param array $tplContent
+	 * @param int $offset (default: 0)
+	 * @param string $blockType (default: 'BLOCK')
+	 * @param TemplateStructure $parentBlock (default: null)
+	 * @return void
+	 */
 	public function __construct($templateContainer, $blockName, $tplContent, $offset = 0, $blockType = 'BLOCK', $parentBlock = null) {
 		// Setup the block name, type and parent
 		$this->blockName = $blockName;
@@ -283,7 +551,8 @@ class TemplateBlock {
 			$this->isRoot = true;
 			$this->path = '/';
 		} else {
-			$this->path = $parentBlock->getPath() . $blockName . '/';
+			$this->path = ($parentBlock->getPath() == '/') ? '' : $parentBlock->getPath();
+			$this->path .= '/' . $blockName;
 		}
 
 		for ($index = $offset, $length = count($tplContent); $index < $length; $index++) {
@@ -291,7 +560,7 @@ class TemplateBlock {
 			if (preg_match('/<!\-\- (START|END) ([a-z\_]+): (.+) \-\->/i', $tplContent[$index], $matches)) {
 				if ($matches[1] == 'START') {
 					// Create a template block under current block
-					$tplObject = new TemplateBlock($this->templateContainer, $matches[3], $tplContent, $index + 1, $matches[2], $this);
+					$tplObject = new TemplateStructure($this->templateContainer, $matches[3], $tplContent, $index + 1, $matches[2], $this);
 
 					$this->blockContent[$matches[3]] = $tplObject;
 					if (!isset($this->blockTypeMapping[$matches[2]])) {
@@ -319,11 +588,24 @@ class TemplateBlock {
 		// If the parentBlock is null, set it as Root
 	}
 
+	/**
+	 * Return Structure Path
+	 * 
+	 * @access public
+	 * @return string
+	 */
 	public function getPath() {
 		return $this->path;
 	}
 
-	// Check the block is exists or not under current block
+	/**
+	 * Check the block is exists under template structure
+	 * 
+	 * @access public
+	 * @param string $blockName
+	 * @param string $blockType (default: '')
+	 * @return bool
+	 */
 	public function hasBlock($blockName, $blockType = '') {
 		if ($blockType) {
 			return (isset($this->blockTypeMapping[$blockType][$blockName]));
@@ -331,7 +613,24 @@ class TemplateBlock {
 		return (isset($this->blockContent[$blockName]));
 	}
 
-	// Get the block
+	/**
+	 * Check the block type is exists under template structure
+	 * 
+	 * @access public
+	 * @param string $blockType
+	 * @return bool
+	 */
+	public function hasBlockType($blockType) {
+		return (isset($this->blockTypeMapping[$blockType]));
+	}
+
+	/**
+	 * Reture the structure by specified name
+	 * 
+	 * @access public
+	 * @param string $blockName
+	 * @return TemplateStructure
+	 */
 	public function getBlock($blockName) {
 		if (isset($this->blockContent[$blockName])) {
 			return $this->blockContent[$blockName];
@@ -339,136 +638,280 @@ class TemplateBlock {
 		return null;
 	}
 
-	// Get the current block type
+	/**
+	 * Reture the block type
+	 * 
+	 * @access public
+	 * @return string
+	 */
 	public function getBlockType() {
 		return $this->blockType;
 	}
 
-	// Get stored block content
+	/**
+	 * Return stored block structure content
+	 * 
+	 * @access public
+	 * @return string
+	 */
 	public function getBlockContent() {
 		return $this->blockContent;
 	}
 
-	// Get the block is root or not
+	/**
+	 * Return the block is root or not
+	 * 
+	 * @access public
+	 * @return bool
+	 */
 	public function isRoot() {
 		return $this->isRoot;
 	}
 
-	// Get the block Name
+	/**
+	 * Return the block name
+	 * 
+	 * @access public
+	 * @return string
+	 */
 	public function getBlockName() {
 		return $this->blockName;
 	}
 
-	// Get the template container
+	/**
+	 * Return the Template
+	 * 
+	 * @access public
+	 * @return void
+	 */
 	public function getContainer() {
 		return $this->templateContainer;
 	}
 }
 
 class TemplateQueue {
-	private $parent = null;
+	private $structure = null;
 	private $identifyName = '';
 	private $assign = array();
 	private $queue = array();
 	private $blockPointer = null;
-	private $pointer = null;
+	private $pointerBlockName = null;
+	private $queuePointer = null;
+	private $parentQueue = null;
 
-	public function __construct($parent, $identifyName = '') {
-		$this->parent = $parent;
+	/**
+	 * constructor
+	 * 
+	 * @access public
+	 * @param Template $structure
+	 * @param string $identifyName (default: '')
+	 * @param TemplateQueue $parentQueue (default: null)
+	 * @return void
+	 */
+	public function __construct($structure, $identifyName = '', $parentQueue = null) {
+		$this->structure = $structure;
 		if (!$identifyName) {
 			// Define a unique identify name if not specified
 			$identifyName = '__TQ#' . sprintf('%04x%04x', mt_rand(0, 0xffff), mt_rand(0, 0xffff));
+		} else {
 		}
 		$this->identifyName = $identifyName;
+		$this->queuePointer = $this;
+		$this->structure->getContainer()->mapPath($structure->getPath(), $this);
+		if ($parentQueue) {
+			$this->parentQueue = $parentQueue;
+		}
 	}
 
-	// Check is any block under current queue from parent template block
-	public function hasBlock($blockName) {
-		return $this->parent->hasBlock($blockName);
-	}
-
-	// Get identify name
+	/**
+	 * Return the queue identify name.
+	 * 
+	 * @access public
+	 * @return string
+	 */
 	public function getIdentifyName() {
 		return $this->identifyName;
 	}
 
-	// Add or Update AssignTag
+	/**
+	 * Return the assigned tag in this queue
+	 * 
+	 * @access public
+	 * @return void
+	 */
+	public function getAssigned() {
+		return $this->assign;
+	}
+
+	/**
+	 * Return the binded structure
+	 * 
+	 * @access public
+	 * @return TemplateStructure
+	 */
+	public function getStructure() {
+		return $this->structure;
+	}
+
+	/**
+	 * Bind assign tag and value
+	 * 
+	 * @access public
+	 * @param mixed $variable
+	 * @param mixed $value
+	 * @return TemplateQueue
+	 */
 	public function assignTag($variable, $value) {
 		$this->assign[$variable] = $value;
 		return $this;
 	}
 
-	// Get the block is root or not
-	public function isRoot() {
-		return $this->parent->isRoot();
-	}
-
-	// Set the block pointer
-	public function setBlock($blockName) {
+	/**
+	 * Set the block pointer
+	 * 
+	 * @access public
+	 * @param string $blockName
+	 * @return TemplateQueue
+	 */
+	public function setPointer($blockName) {
 		if (!isset($this->queue[$blockName])) {
 			$this->queue[$blockName] = array();
 		}
-		$this->blockPointer = $blockName;
+		$this->blockPointer = &$this->queue[$blockName];
+		$this->pointerBlockName = $blockName;
 		return $this;
 	}
 
-	// Get All Queues
+	/**
+	 * Return all queues that the block pointer marked
+	 * 
+	 * @access public
+	 * @return array
+	 */
 	public function getAllQueues() {
-		return (isset($this->queue[$this->blockPointer])) ? $this->queue[$this->blockPointer] : array();
+		return (isset($this->blockPointer)) ? $this->blockPointer : array();
 	}
 
-	// Get Current Queue
+	/**
+	 * Return the queue that the queue pointer marked
+	 * 
+	 * @access public
+	 * @return TemplateQueue
+	 */
 	public function getCurrentQueue() {
-		return $this->pointer;
+		return $this->queuePointer;
 	}
 
-	// Get Current Block Template
-	public function getBlockTemplate() {
-		return $this->parent->getBlock($this->blockPointer);
-	}
-
-	// Check is there any queue under current block pointer
+	/**
+	 * Return true if there is any queue exists in current block pointer
+	 * 
+	 * @access public
+	 * @return bool
+	 */
 	public function hasQueue() {
-		return (isset($this->queue[$this->blockPointer]) && count($this->queue[$this->blockPointer]) > 0);
+		return (isset($this->blockPointer) && count($this->blockPointer) > 0);
 	}
 
-	// Get the last queue or specified queue
+	/**
+	 * Return the last queue or the queue with specified identify name
+	 * 
+	 * @access public
+	 * @param string $identifyName (default: '')
+	 * @return TemplateQueue
+	 */
 	public function getQueue($identifyName = '') {
 		if ($identifyName) {
-			if (isset($this->queue[$this->blockPointer][$identifyName])) {
-				return $this->queue[$this->blockPointer][$identifyName];
+			if (isset($this->blockPointer[$identifyName])) {
+				return $this->blockPointer[$identifyName];
 			}
 		} else {
-			return (count($this->queue[$this->blockPointer])) ? end($this->queue[$this->blockPointer]) : null;
+			return (count($this->blockPointer)) ? end($this->blockPointer) : null;
 		}
 		return null;
 	}
 
-	// Add Queue to currrent queue
+	/**
+	 * Return the parent queue
+	 * 
+	 * @access public
+	 * @return TemplateQueue
+	 */
+	public function getParent() {
+		return $this->parentQueue;
+	}
+
+
+	/**
+	 * Check current queue is child of specified path with identify name
+	 * 
+	 * @access public
+	 * @param string $path
+	 * @param string $blockName
+	 * @param string $identifyName
+	 * @return bool
+	 */
+	public function isChildOf($path, $blockName, $identifyName) {
+		if ($path == $this->getStructure()->getPath() && $blockName == $this->getStructure()->getBlockName()) {
+			return $identifyName == $this->getIdentifyName();
+		} elseif ($this->parentQueue) {
+			return $this->parentQueue->isChildOf($path, $blockName, $identifyName);
+		} else {
+			return false;
+		}
+	}
+
+	/**
+	 * Remove current queue from list, and no longer getting parsed
+	 * 
+	 * @access public
+	 * @param TemplateQueue $queue
+	 * @return TemplateQueue
+	 */
+	public function detach($queue) {
+		if (is_a($queue, 'TemplateQueue')) {
+			$idenetifyName = $queue->getIdentifyName();
+			$blockName = $queue->getStructure()->getBlockName();
+			if (isset($this->queue[$blockName][$idenetifyName])) {
+				unset($this->queue[$blockName][$idenetifyName]);
+			}
+		}
+		return $this;
+	}
+
+	/**
+	 * Create a new queue
+	 * 
+	 * @access public
+	 * @param string $identifyName (default: '')
+	 * @param string $targetIdentify (default: '')
+	 * @param int $append (default: 1)
+	 * @return TemplateQueue
+	 */
 	public function addQueue($identifyName = '', $targetIdentify = '', $append = 1) {
 		// Trim the identify name
 		$identifyName = trim($identifyName);
 
 		// If identify name not provided or not found in queue
-		if (!$identifyName || !isset($this->queue[$this->blockPointer][$identifyName])) {
+		if (!$identifyName || !isset($this->blockPointer[$identifyName])) {
 			// Create new template queue
-			$tq = new TemplateQueue($this->parent->getBlock($this->blockPointer), $identifyName);
+			$tq = new TemplateQueue($this->structure->getBlock($this->pointerBlockName), $identifyName, $this);
+
 			// Set the queue to pointer
-			$this->pointer = $tq;
+			$this->queuePointer = $tq;
 
 			$keyIndex = FALSE;
 			// If target identify name is provided, find the queue index
 			if ($targetIdentify) {
-				$keyIndex = array_search($targetIdentify, array_keys($this->queue[$this->blockPointer]));
+				$keyIndex = array_search($targetIdentify, array_keys($this->blockPointer));
 			}
 
 			// If no queue found or no target identify name is provided
 			if ($keyIndex === FALSE) {
 				// Add the queue to end of the queue list
-				$this->queue[$this->blockPointer][$tq->getIdentifyName()] = $tq;
+				$this->blockPointer[$tq->getIdentifyName()] = $tq;
 			} elseif (!$append && $keyIndex == 0) {
-				// If it is prepend mode and the queue index was the first item, add the queue to begining of the queu list
-				$this->queue = array($tq->getIdentifyName() => $tq) + $this->queue[$this->blockPointer];
+				// If it is prepend mode and the queue index was the first item, add the queue to begining of the queue list
+				$this->blockPointer = array($tq->getIdentifyName() => $tq) + $this->blockPointer;
 			} else {
 				// If it is a append mode, keyIndex + 1
 				if ($append) {
@@ -476,49 +919,55 @@ class TemplateQueue {
 				}
 
 				// If keyIndex greater than current queue list length, just push into it
-				if ($keyIndex > count($this->queue[$this->blockPointer]) - 1) {
-					$this->queue[$this->blockPointer][$tq->getIdentifyName()] = $tq;
+				if ($keyIndex > count($this->blockPointer) - 1) {
+					$this->blockPointer[$tq->getIdentifyName()] = $tq;
 				} else {
 					// Insert the queue to specified position
-					array_splice($this->queue[$this->blockPointer], $keyIndex, 0, array($tq->getIdentifyName() => $tq));
+					array_splice($this->blockPointer, $keyIndex, 0, array($tq->getIdentifyName() => $tq));
 				}
 			}
 		} else {
 			// Set the pointer to target queue by identify name
-			$this->pointer = $this->queue[$this->blockPointer][$identifyName];
+			$this->queuePointer = $this->blockPointer[$identifyName];
 		}
 
-		return $this->pointer;
+		return $this->queuePointer;
 	}
 
-	public function getTemplate() {
-		return $this->parent;
-	}
-
+	/**
+	 * Parse all queue as content
+	 * 
+	 * @access public
+	 * @return string
+	 */
 	public function parse() {
 		// Get the parent template block content
-		$templateContent = $this->parent->getBlockContent();
+		$templateContent = $this->structure->getBlockContent();
 
 		// Initialize
 		$readyParseBlock = array();
 		$parsedContent = '';
 
-		// ISEXISTS Block
-		if ($this->parent->getBlockType() == 'IFEXISTS') {
+		// IFEXISTS Block
+		if ($this->structure->getBlockType() == 'IFEXISTS') {
 			if (count($this->queue, COUNT_RECURSIVE) - count($this->queue) == 0) {
-				return '';
+				// If no IFNOTEXISTS block under the structure, ignore to display
+				if (!$this->structure->hasBlockType('IFNOTEXISTS')) {
+					return '';
+				}
 			}
-		}
-
-		// IFNOTEXISTS Block
-		if ($this->parent->getBlockType() == 'IFNOTEXISTS') {
-			
 		}
 
 		if (count($templateContent)) {
 			foreach ($templateContent as $identifyName => $content) {
 				// If the line is a template block object
-				if (is_a($content, 'TemplateBlock')) {
+				if (is_a($content, 'TemplateStructure')) {
+					// IFNOTEXISTS Block
+					// If there is no other block queued in same level, parse content
+					if ($content->getBlockType() == 'IFNOTEXISTS' && count($this->queue, COUNT_RECURSIVE) - count($this->queue) == 0) {
+						$this->setPointer($content->getBlockName())->addQueue();
+					}
+
 					// Check is there any queue was created
 					if (isset($this->queue[$content->getBlockName()]) && count($this->queue[$content->getBlockName()])) {
 						// Parse each template queue
@@ -556,7 +1005,7 @@ class TemplateQueue {
 									if (array_key_exists($command[0], $this->assign) && $this->assign[$command[0]]) {
 										// Queue level assign
 										return (isset($tag[1])) ? $tag[1] : '';
-									} elseif (($result = $this->parent->getContainer()->getAssign($command[0]))) {
+									} elseif (($result = $this->structure->getContainer()->getAssign($command[0]))) {
 										// Template Container level assign
 										return (isset($tag[1])) ? $tag[1] : '';
 									} elseif (($result = Template::GetGlobalAssign($command[0]))) {
@@ -580,7 +1029,7 @@ class TemplateQueue {
 					if (array_key_exists($matches[1], $this->assign)) {
 						// Queue level assign
 						return $this->assign[$matches[1]];
-					} elseif (($result = $this->parent->getContainer()->getAssign($matches[1])) !== null) {
+					} elseif (($result = $this->structure->getContainer()->getAssign($matches[1])) !== null) {
 						// Template Container level assign
 						return $result;
 					} elseif (($result = Template::GetGlobalAssign($matches[1])) !== null) {
@@ -595,6 +1044,150 @@ class TemplateQueue {
 			$parsedContent = str_replace(array_keys($readyParseBlock), array_values($readyParseBlock), $parsedContent);
 		}
 		return $parsedContent;
+	}
+}
+
+class TemplateQueuePack {
+	private $queues = array();
+	private $templateContainer = null;
+	private $indexQueues = null;
+
+	/**
+	 * constructor
+	 * 
+	 * @access public
+	 * @param Template $templateContainer
+	 * @param mixed $queues (default: array())
+	 * @return void
+	 */
+	public function __construct($templateContainer, $queues = array()) {
+		$this->queues = (is_array($queues)) ? $queues : array($queues);
+		$this->templateContainer = $templateContainer;
+	}
+
+	/**
+	 * Assign tag to all queue
+	 * 
+	 * @access public
+	 * @param mixed $variable
+	 * @param mixed $value (default: '')
+	 * @return void
+	 */
+	public function assign($variable, $value = '') {
+		if (is_callable($variable)) {
+			foreach ($this->queues as $queue) {
+				$newAssigned = $variable($queue->getAssigned());
+				if (is_array($newAssigned) && count($newAssigned)) {
+					foreach ($newAssigned as $tagName => $value) {
+						$queue->assignTag($tagName, $value);
+					}
+				}
+			}
+		} else {
+			if (is_array($variable)) {
+				foreach ($variable as $tagName => $value) {
+					$this->assign($tagName, $value);
+				}
+			} else {
+				foreach ($this->queues as $queue) {
+					$queue->assignTag($variable, $value);
+				}
+			}
+		}
+		return $this;
+	}
+
+	/**
+	 * Mount the specified queue by identify name
+	 * 
+	 * @access public
+	 * @param string $idenetifyName
+	 * @return TemplateQueuePack
+	 */
+	public function mountQueueByIdentify($idenetifyName) {
+		if (isset($this->queues[$idenetifyName])) {
+			$this->templateContainer->mountQueue($this->queues[$idenetifyName]);
+		}
+		return $this;
+	}
+
+	/**
+	 * Mount the specified queue by index
+	 * 
+	 * @access public
+	 * @param int $index
+	 * @return TemplateQueuePack
+	 */
+	public function mountQueueByIndex($index) {
+		$index = intval($index);
+		if ($this->indexQueues == null) {
+			$this->indexQueues = array_values($this->queues);
+		}
+		if (isset($this->indexQueues[$index])) {
+			$this->templateContainer->mountQueue($this->indexQueues[$index]);
+		}
+		return $this;
+	}
+
+	/**
+	 * Mount the first queue as current TemplateQueue
+	 * 
+	 * @access public
+	 * @return TemplateQueuePack
+	 */
+	public function mountQueue() {
+		if (count($this->queues)) {
+			$this->templateContainer->mountQueue(reset($this->queues));
+		}
+		return $this;
+	}
+
+	/**
+	 * Detach all queue
+	 * 
+	 * @access public
+	 * @return void
+	 */
+	public function detach() {
+		foreach ($this->queues as $identifyName => $queue) {
+			if (!$queue->getStructure()->isRoot()) {
+				$queue->getParent()->detach($queue);
+				unset($this->queues[$identifyName]);
+			}
+		}
+		return $this;
+	}
+
+	/**
+	 * Get the specified queue by idenetify name
+	 * 
+	 * @access public
+	 * @param string $idenetifyName
+	 * @return TemplateQueuePack
+	 */
+	public function getQueueByIdentify($idenetifyName) {
+		if (isset($this->queues[$idenetifyName])) {
+			return new TemplateQueuePack($this->templateContainer, $this->queues[$idenetifyName]);
+		}
+		return new TemplateQueuePack($this->templateContainer);
+	}
+
+	/**
+	 * Get the specified queue by index
+	 * 
+	 * @access public
+	 * @param int $index
+	 * @return TemplateQueuePack
+	 */
+	public function getQueueByIndex($index) {
+		$index = intval($index);
+		if ($this->indexQueues == null) {
+			$this->indexQueues = array_values($this->queues);
+		}
+		if (isset($this->indexQueues[$index])) {
+			return new TemplateQueuePack($this->templateContainer, $this->indexQueues[$index]);
+		}
+		return new TemplateQueuePack($this->templateContainer);
 	}
 }
 ?>
