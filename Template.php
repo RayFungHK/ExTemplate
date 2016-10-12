@@ -260,7 +260,8 @@ class Template {
 		}
 
 		if (isset($this->lastQueuePointer)) {
-			if (is_callable($variable)) {
+			if (!is_string($variable) && is_callable($variable)) {
+				echo $variable;
 				$newAssigned = $variable($this->lastQueuePointer->getAssigned());
 				if (is_array($newAssigned) && count($newAssigned)) {
 					return $this->assign($newAssigned);
@@ -1074,7 +1075,7 @@ class TemplateQueuePack {
 	 * @return void
 	 */
 	public function assign($variable, $value = '') {
-		if (is_callable($variable)) {
+		if (!is_string($variable) && is_callable($variable)) {
 			foreach ($this->queues as $queue) {
 				$newAssigned = $variable($queue->getAssigned());
 				if (is_array($newAssigned) && count($newAssigned)) {
