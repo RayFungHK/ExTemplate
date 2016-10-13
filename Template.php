@@ -1,10 +1,13 @@
 <?php
+define('EXTPL_DIR', dirname(__FILE__) . DIRECTORY_SEPARATOR);
 class Template {
 	static public $Assign = array();
 	static public $LoadedTemplate = array();
 	static private $GlobalAssign = array();
 	static private $TemplatePool = array();
 	static private $AssignCallback = array();
+	static private $pluginDir = array();
+	static private $loadedPlugin = array();
 
 	private $assign = array();
 	private $tplName = '';
@@ -516,6 +519,97 @@ class Template {
 		}
 		return '';
 	}
+
+	/**
+	 * Add plugin folder path to plugin directory list
+	 * 
+	 * @access public
+	 * @static
+	 * @param string $path
+	 * @return bool
+	 */
+	static public function AddPluginDir($path) {
+		// Put the default plugin folder into plugin directory list if there is
+		// no plugin folder has been added
+		if (empty(self::$pluginDir)) {
+			self::$pluginDir[EXTPL_DIR . 'extpl_plugins' . DIRECTORY_SEPARATOR] = true;
+		}
+
+		$path = trim($path);
+		if ($path) {
+			$path = rtrim(preg_replace('/[\/\\\]+/', DIRECTORY_SEPARATOR, $path), DIRECTORY_SEPARATOR);
+
+			// Identify the path is relationship path from Template Class location or not
+			if ($path[0] == '.' || $path[0] == DIRECTORY_SEPARATOR) {
+				if (is_dir($path)) {
+					self::$loadedPlugin = array();
+					self::$pluginDir[$path] = true;
+					return true;
+				}
+			} else {
+				$relatedPath = EXTPL_DIR . $path . DIRECTORY_SEPARATOR;
+				if (is_dir($relatedPath)) {
+					self::$loadedPlugin = array();
+					self::$pluginDir[$relatedPath] = true;
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Load plugin function from plugin directory list
+	 * If the plugin function not found or cannot be loaded, it will mark
+	 * the plugin function as loaded and no longer be searched
+	 * 
+	 * @access public
+	 * @static
+	 * @param string $type
+	 * @param string $funcname
+	 * @param string $value
+	 * @param array $parameters
+	 * @return mixed
+	 */
+	static public function LoadPlugin($type, $funcname, $value, $parameters) {
+		if (empty(self::$pluginDir)) {
+			self::$pluginDir[EXTPL_DIR . 'extpl_plugins' . DIRECTORY_SEPARATOR] = true;
+		}
+		$pluginFileName = $type . '.' . $funcname . '.php';
+		$functionName = 'extpl_' . $type . '_' . $funcname;
+
+		// If plugin function not marked as loaded
+		if (!isset(self::$loadedPlugin[$functionName])) {
+			foreach (self::$pluginDir as $pluginDir => $var) {
+				// If the plugin file exists
+				if (file_exists($pluginDir . $pluginFileName)) {
+					include $pluginDir . $pluginFileName;
+					// If the plugin function still not be found after the plugin file was loaded
+					// Mark the plugin function as failed.
+					if (!function_exists($functionName)) {
+						self::$loadedPlugin[$functionName] = false;
+						return $value;
+					} else {
+						self::$loadedPlugin[$functionName] = true;
+						break;
+					}
+				}
+			}
+
+			// Until all plugin folder has searched, it the plugin function still not be marked
+			// Mark the plugin function as failed.
+			if (!isset(self::$loadedPlugin[$functionName])) {
+				self::$loadedPlugin[$functionName] = false;
+				return $value;
+			}
+		} elseif (!self::$loadedPlugin[$functionName]) {
+			// If the plugin function has marked as failed, ignore it.
+			return $value;
+		}
+
+		array_unshift($parameters, $value);
+		return call_user_func_array($functionName, $parameters);
+	}
 }
 
 class TemplateStructure {
@@ -1023,21 +1117,66 @@ class TemplateQueue {
 				},
 				$parsedContent
 			);
+
 			// Search and Replace the assigne tag
 			$parsedContent = preg_replace_callback(
-				'/{([\w_]+)}/u',
+				'/{([\w]+(?:\|[\w+]+(?::(?:[\w]+|((?<![\\\\])[\'"])(?:(?:.(?!(?<![\\\\])\2))*.?)\2))*)*)}/i',
 				function($matches) {
-					if (array_key_exists($matches[1], $this->assign)) {
+					$clips = explode('|', $matches[1]);
+					$tagname = array_shift($clips);
+					$value = '';
+					if (array_key_exists($tagname, $this->assign)) {
 						// Queue level assign
-						return $this->assign[$matches[1]];
-					} elseif (($result = $this->structure->getContainer()->getAssign($matches[1])) !== null) {
+						$value = $this->assign[$tagname];
+					} elseif (($result = $this->structure->getContainer()->getAssign($tagname)) !== null) {
 						// Template Container level assign
-						return $result;
-					} elseif (($result = Template::GetGlobalAssign($matches[1])) !== null) {
+						$value = $result;
+					} elseif (($result = Template::GetGlobalAssign($tagname)) !== null) {
 						// Global level assign
-						return $result;
+						$value = $result;
+					} else {
+						return $matches[0];
 					}
-					return $matches[0];
+
+					// If assign tag includes function clips, start extract the clips
+					if (count($clips)) {
+						foreach ($clips as $clip) {
+							// Get the function name and parameters string if the ':' has been found
+							if (($pos = strpos($clip, ':')) !== FALSE) {
+								$funcname = substr(￼$clip, 0, $pos);
+								$parametersString = substr(￼$clip, $pos);
+							} else {
+								$funcname = $clip;
+								$parametersString = '';
+							}
+
+							$parameters = array();
+							// Extract the parameters
+							if ($parametersString) {
+								if (preg_match_all('/(:((true)|(false)|([\w]+)|((?<![\\\\])[\'"])((?:.(?!(?<![\\\\])\6))*.?)\6))/', $parametersString, $matches, PREG_SET_ORDER)) {
+									foreach ($matches as $match) {
+										if ($match[3]) {
+											$parameters[] = true;
+										} elseif ($match[4]) {
+											$parameters[] = false;
+										} else {
+											$param = (isset($match[7])) ? $match[7] : $match[5];
+											// If the parameter quoted by double quote, the string with backslashes
+											// that recognized by C-like \n, \r ..., octal and hexadecimal representation will be stripped off
+											if (isset($match[6]) && $match[6] == '"') {
+												$param = stripcslashes($param);
+											}
+											$parameters[] = stripslashes($param);
+										}
+									}
+								}
+							}
+
+							// Execute the assign tag function
+							$value = Template::LoadPlugin('modifier', $funcname, $value, $parameters);
+						}
+					}
+					return $value;
 				},
 				$parsedContent
 			);
