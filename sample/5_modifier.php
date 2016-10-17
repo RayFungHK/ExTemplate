@@ -1,8 +1,6 @@
 <?php
-include('../template.php');
-include('./header.php');
-$tpl = new template('./sample.tpl');
-$tpl->setpostparse(true);
+include('../Template.php');
+$tpl = new Template('./sample.tpl');
 $tpl->gotoBlock('category')->newBlock()->assign(array(
 	'category_name' => 'toys'
 ));
@@ -11,7 +9,8 @@ $tpl->gotoBlock('productlist')->newBlock();
 
 $tpl->gotoBlock('product')->newBlock('lego')->assign(array(
 	'product_name' => 'lego starter pack',
-	'price' => '200.00'
+	'price' => '200.00',
+	'copyright' => ' by factory ltd.'
 ))->newBlock('speedycar')->assign(array(
 	'product_name' => 'speedy car',
 	'price' => '100.00'
@@ -20,7 +19,9 @@ $tpl->gotoBlock('product')->newBlock('lego')->assign(array(
 	'price' => '30.00'
 ))->newBlock('papersns')->assign(array(
 	'product_name' => 'paper sword and shield',
-	'price' => '300.00'
+	'price' => '300.00',
+	'copyright' => ' by abc co.'
 ));
-include('./footer.php');
+
+echo $tpl->parse();
 ?>

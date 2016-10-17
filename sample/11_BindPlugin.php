@@ -1,8 +1,6 @@
 <?php
-include('../template.php');
-include('./header.php');
-$tpl = new template('./sample.tpl');
-$tpl->setpostparse(true);
+include('../Template.php');
+$tpl = new Template('./sample.tpl');
 $tpl->gotoBlock('category')->newBlock()->assign(array(
 	'category_name' => 'toys'
 ));
@@ -22,5 +20,19 @@ $tpl->gotoBlock('product')->newBlock('lego')->assign(array(
 	'product_name' => 'paper sword and shield',
 	'price' => '300.00'
 ));
-include('./footer.php');
+
+Template::BindPlugin('function', 'date', function ($parmas) {
+	$data = new datetime('now');
+	$text = trim($parmas['text']);
+	$datestring = $data->format('Y-m-d H:i:s');
+
+	if ($text) {
+		if (strpos($text, '__datetime__') !== false) {
+			return str_replace('__datetime__', $datestring, $text);
+		}
+		return $text;
+	}
+	return $datestring;
+});
+echo $tpl->parse();
 ?>

@@ -1,40 +1,36 @@
 <?php
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
-
 $products = array(
-	'Toy' => array(
+	'toy' => array(
 		'lego' => array(
-			'name' => 'Lego Starter Pack',
+			'name' => 'lego starter pack',
 			'price' => '200.00',
-			'copyright' => ' by LEGO co.'
+			'copyright' => ' by lego co.'
 		),
 		'speedycar' => array(
-			'name' => 'Speedy Car',
+			'name' => 'speedy car',
 			'price' => '100.00'
 		),
 		'stickyball' => array(
-			'name' => 'Sticky Ball',
+			'name' => 'sticky ball',
 			'price' => '30.00'
 		),
 		'papersns' => array(
-			'name' => 'Paper Sword and Shield',
+			'name' => 'paper sword and shield',
 			'price' => '300.00',
-			'copyright' => ' by Factory co.'
+			'copyright' => ' by factory co.'
 		)
 	),
-	'Candy' => array(
+	'candy' => array(
 		'gummybear_s' => array(
-			'name' => 'Small Gommy Bear',
+			'name' => 'small gommy bear',
 			'price' => '20.00'
 		),
 		'gummybear_l' => array(
-			'name' => 'Large Gommy Bear',
+			'name' => 'large gommy bear',
 			'price' => '20.00'
 		),
 		'sneaker' => array(
-			'name' => 'Sneaker',
+			'name' => 'sneaker',
 			'price' => '40.00'
 		)
 	)
@@ -45,16 +41,16 @@ $tpl = new Template('./sample.tpl');
 $tpl->gotoBlock('category');
 foreach ($products as $category => $productlist) {
 	$tpl->newBlock()->assign(array(
-		'CATEGORY_NAME' => $category
+		'category_name' => $category
 	))->gotoBlock('productlist')->newBlock();
 
 	if (count($productlist)) {
 		$tpl->gotoBlock('product');
 		foreach ($productlist as $product_code => $detail) {
 			$tpl->newBlock($product_code)->assign(array(
-				'PRODUCT_NAME' => $detail['name'],
-				'PRICE' => $detail['price'],
-				'COPYRIGHT' => isset($detail['copyright']) ? $detail['copyright'] : ''
+				'product_name' => $detail['name'],
+				'price' => $detail['price'],
+				'copyright' => isset($detail['copyright']) ? $detail['copyright'] : ''
 			));
 		}
 	}
@@ -63,10 +59,10 @@ foreach ($products as $category => $productlist) {
 
 
 $tpl->findBlock('/category/productlist/product')->assign(function($assigned) {
-	// Fix Gommy to Gummy
+	// fix gommy to gummy
 	$new_assigned = array();
-	if (isset($assigned['PRODUCT_NAME']) && strpos($assigned['PRODUCT_NAME'], 'Gommy') !== FALSE) {
-		$new_assigned['PRODUCT_NAME'] = str_replace('Gommy', 'Gummy', $assigned['PRODUCT_NAME']);
+	if (isset($assigned['product_name']) && strpos($assigned['product_name'], 'gommy') !== false) {
+		$new_assigned['product_name'] = str_replace('gommy', 'gummy', $assigned['product_name']);
 	}
 	return $new_assigned;
 });
