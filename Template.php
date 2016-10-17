@@ -8,6 +8,7 @@ class Template {
 	static private $AssignCallback = array();
 	static private $pluginDir = array();
 	static private $loadedPlugin = array();
+	static private $bindedPlugin = array();
 
 	private $assign = array();
 	private $tplName = '';
@@ -490,34 +491,24 @@ class Template {
 	}
 
 	/**
-	 * Bind and Create a customized assign tag processor
+	 * Bind the custom function for assign tag
 	 * 
 	 * @access public
 	 * @static
+	 * @param string $type
 	 * @param string $name
-	 * @param callable $callback
+	 * @param callback $callback
 	 * @return void
 	 */
-	static public function CreateAssignProcessor($name, $callback) {
-		if (is_string($name) && is_callable($callback)) {
-			self::$AssignCallback[$name] = $callback;
+	static public function BindPlugin($type, $name, $callback) {
+		$type = trim($type);
+		$name = trim($name);
+		if ($type && $name && is_callable($callback)) {
+			$funcname = 'extpl_' . $type . '_' .$name;
+			if (!isset(self::$bindedPlugin[$funcname])) {
+				self::$bindedPlugin[$funcname] = $callback;
+			}
 		}
-	}
-
-	/**
-	 * Execute the customized assign tag processor
-	 * 
-	 * @access public
-	 * @static
-	 * @param string $name
-	 * @param mixed $argument
-	 * @return mixed
-	 */
-	static public function ExecAssignProcessor($name, $argument) {
-		if (isset(self::$AssignCallback[$name])) {
-			return call_user_func_array(self::$AssignCallback[$name], $argument);
-		}
-		return '';
 	}
 
 	/**
@@ -559,6 +550,52 @@ class Template {
 	}
 
 	/**
+	 * Check the plugin function is exists or not
+	 * 
+	 * @access public
+	 * @static
+	 * @param string $type
+	 * @param string $funcname
+	 * @return bool
+	 */
+	static public function PluginExists($type, $funcname) {
+		if (empty(self::$pluginDir)) {
+			self::$pluginDir[EXTPL_DIR . 'extpl_plugins' . DIRECTORY_SEPARATOR] = true;
+		}
+
+		$pluginFileName = $type . '.' . $funcname . '.php';
+		$functionName = 'extpl_' . $type . '_' . $funcname;
+
+		if (isset(self::$bindedPlugin[$functionName])) {
+			return true;
+		} elseif (!isset(self::$loadedPlugin[$functionName])) {
+			foreach (self::$pluginDir as $pluginDir => $var) {
+				// If the plugin file exists
+				if (file_exists($pluginDir . $pluginFileName)) {
+					include $pluginDir . $pluginFileName;
+					// If the plugin function still not be found after the plugin file was loaded
+					// Mark the plugin function as failed.
+					if (!function_exists($functionName)) {
+						self::$loadedPlugin[$functionName] = false;
+						return false;
+					} else {
+						self::$loadedPlugin[$functionName] = true;
+						return true;
+					}
+				}
+			}
+
+			// Until all plugin folder has searched, it the plugin function still not be marked
+			// Mark the plugin function as failed.
+			if (!isset(self::$loadedPlugin[$functionName])) {
+				self::$loadedPlugin[$functionName] = false;
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/**
 	 * Load plugin function from plugin directory list
 	 * If the plugin function not found or cannot be loaded, it will mark
 	 * the plugin function as loaded and no longer be searched
@@ -571,7 +608,7 @@ class Template {
 	 * @param array $parameters
 	 * @return mixed
 	 */
-	static public function LoadPlugin($type, $funcname, $value, $parameters) {
+	static public function LoadPlugin($type, $funcname, $parameters) {
 		if (empty(self::$pluginDir)) {
 			self::$pluginDir[EXTPL_DIR . 'extpl_plugins' . DIRECTORY_SEPARATOR] = true;
 		}
@@ -579,7 +616,9 @@ class Template {
 		$functionName = 'extpl_' . $type . '_' . $funcname;
 
 		// If plugin function not marked as loaded
-		if (!isset(self::$loadedPlugin[$functionName])) {
+		if (isset(self::$bindedPlugin[$functionName])) {
+			$functionName = self::$bindedPlugin[$functionName];
+		} elseif (!isset(self::$loadedPlugin[$functionName])) {
 			foreach (self::$pluginDir as $pluginDir => $var) {
 				// If the plugin file exists
 				if (file_exists($pluginDir . $pluginFileName)) {
@@ -588,7 +627,7 @@ class Template {
 					// Mark the plugin function as failed.
 					if (!function_exists($functionName)) {
 						self::$loadedPlugin[$functionName] = false;
-						return $value;
+						return '';
 					} else {
 						self::$loadedPlugin[$functionName] = true;
 						break;
@@ -600,14 +639,13 @@ class Template {
 			// Mark the plugin function as failed.
 			if (!isset(self::$loadedPlugin[$functionName])) {
 				self::$loadedPlugin[$functionName] = false;
-				return $value;
+				return '';
 			}
 		} elseif (!self::$loadedPlugin[$functionName]) {
 			// If the plugin function has marked as failed, ignore it.
-			return $value;
+			return '';
 		}
 
-		array_unshift($parameters, $value);
 		return call_user_func_array($functionName, $parameters);
 	}
 }
@@ -1080,51 +1118,44 @@ class TemplateQueue {
 				}
 			}
 
-			// Caller Process
+			// Search function assign tag, pettern: {func_name( modifier="parameter")*}
 			$parsedContent = preg_replace_callback(
-				'/{{((?>.|(?R))*)}}/U',
-				function($matches) {
-					if ($matches[1]) {
-						$tag = explode('::', $matches[1]);
-						if (isset($tag[0])) {
-							$command = explode(' ', $tag[0]);
-							$caller = array_shift($command);
-							$argument = array(
-								$command,
-								(isset($tag[1])) ? $tag[1] : ''
-							);
-
-							// Default Processor 'Switch': If value is true, return the content
-							if ($caller == 'SWITCH') {
-								if (isset($command[0])) {
-									if (array_key_exists($command[0], $this->assign) && $this->assign[$command[0]]) {
-										// Queue level assign
-										return (isset($tag[1])) ? $tag[1] : '';
-									} elseif (($result = $this->structure->getContainer()->getAssign($command[0]))) {
-										// Template Container level assign
-										return (isset($tag[1])) ? $tag[1] : '';
-									} elseif (($result = Template::GetGlobalAssign($command[0]))) {
-										// Global level assign
-										return (isset($tag[1])) ? $tag[1] : '';
+				'/{(\w+)((\s\w+(?:=(?:\w+|(?:((?<![\\\\])[\'"])(?:(?:.(?!(?<![\\\\])\4))*.?)\4)))?)*)}/i',
+				function($matches) {	
+					$clips_count = preg_match_all('/(\s(\w+)(?:=(?:\w+|(?:((?<![\\\\])[\'"])((?:.(?!(?<![\\\\])\3))*.?)\3)))?)/', $matches[2], $clips, PREG_SET_ORDER);
+					$funcname = $matches[1];
+					if (Template::PluginExists('function', $funcname)) {
+						$parameters = array();
+						if (count($clips)) {
+							foreach ($clips as $clip) {
+								$parameter = $clip[2];
+								if (isset($clip[4])) {
+									$value = $clip[4];
+									if ($clip[3] == '"') {
+										$value = stripcslashes($value);
 									}
+								} else {
+									$value = true;
 								}
-							} else {
-								return Template::ExecAssignProcessor($caller, $argument);
+								$parameters[$parameter] = $value;
 							}
 						}
+	
+						// Execute the assign tag function
+						return Template::LoadPlugin('function', $funcname, array($parameters));
 					}
-					return '';
 				},
 				$parsedContent
 			);
 
-			// Search and Replace the assigne tag
+			// Search variable assign tag, pettern: {$assign_tag(|modifier(:parameter)*)*}
 			$parsedContent = preg_replace_callback(
-				'/{([\w]+(?:\|[\w+]+(?::(?:[\w]+|((?<![\\\\])[\'"])(?:(?:.(?!(?<![\\\\])\2))*.?)\2))*)*)}/i',
+				'/{\$(\w+)((\|\w+(?::(?:\w+|(?:((?<![\\\\])[\'"])(?:(?:.(?!(?<![\\\\])\4))*.?)\4)))?)*)}/i',
 				function($matches) {
-					$clips = explode('|', $matches[1]);
-					$tagname = array_shift($clips);
+					$clips_count = preg_match_all('/\|(\w+)((?::(\w+|(?:((?<![\\\\])[\'"])((?:.(?!(?<![\\\\])\4))*.?)\4)))*)/', $matches[2], $clips, PREG_SET_ORDER);
+					$tagname = $matches[1];
 					$value = '';
+					
 					if (array_key_exists($tagname, $this->assign)) {
 						// Queue level assign
 						$value = $this->assign[$tagname];
@@ -1134,46 +1165,43 @@ class TemplateQueue {
 					} elseif (($result = Template::GetGlobalAssign($tagname)) !== null) {
 						// Global level assign
 						$value = $result;
-					} else {
+					} elseif ($clips_count == 0) {
 						return $matches[0];
 					}
 
 					// If assign tag includes function clips, start extract the clips
-					if (count($clips)) {
+					if ($clips_count) {
 						foreach ($clips as $clip) {
-							// Get the function name and parameters string if the ':' has been found
-							if (($pos = strpos($clip, ':')) !== FALSE) {
-								$funcname = substr(￼$clip, 0, $pos);
-								$parametersString = substr(￼$clip, $pos);
-							} else {
-								$funcname = $clip;
-								$parametersString = '';
-							}
-
-							$parameters = array();
-							// Extract the parameters
-							if ($parametersString) {
-								if (preg_match_all('/(:((true)|(false)|([\w]+)|((?<![\\\\])[\'"])((?:.(?!(?<![\\\\])\6))*.?)\6))/', $parametersString, $matches, PREG_SET_ORDER)) {
-									foreach ($matches as $match) {
-										if ($match[3]) {
+							// Get the function name and parameters string
+							$funcname = $clip[1];
+							// Check the plugin is exists or not
+							if (Template::PluginExists('modifier', $funcname)) {
+								$parameters = array();
+								// Extract the parameters
+								if (isset($clip[2])) {
+									$clips_count = preg_match_all('/:(\w+|(?:((?<![\\\\])[\'"])((?:.(?!(?<![\\\\])\2))*.?)\2))/', $clip[2], $params, PREG_SET_ORDER);
+									foreach ($params as $match) {
+										if ($match[3] == 'true') {
 											$parameters[] = true;
-										} elseif ($match[4]) {
+										} elseif ($match[3] == 'false') {
 											$parameters[] = false;
-										} else {
-											$param = (isset($match[7])) ? $match[7] : $match[5];
+										} elseif (isset($match[5])) {
+											$param = $match[5];
 											// If the parameter quoted by double quote, the string with backslashes
 											// that recognized by C-like \n, \r ..., octal and hexadecimal representation will be stripped off
-											if (isset($match[6]) && $match[6] == '"') {
+											if ($match[4] == '"') {
 												$param = stripcslashes($param);
 											}
 											$parameters[] = stripslashes($param);
+										} else {
+											$parameters[] = stripslashes($match[3]);
 										}
 									}
 								}
+								array_unshift($parameters, $value);
+								// Execute the assign tag function
+								$value = Template::LoadPlugin('modifier', $funcname, $parameters);
 							}
-
-							// Execute the assign tag function
-							$value = Template::LoadPlugin('modifier', $funcname, $value, $parameters);
 						}
 					}
 					return $value;
