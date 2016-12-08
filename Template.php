@@ -1144,6 +1144,7 @@ class TemplateQueue {
 						// Execute the assign tag function
 						return Template::LoadPlugin('function', $funcname, array($parameters));
 					}
+					return $matches[0];
 				},
 				$parsedContent
 			);
