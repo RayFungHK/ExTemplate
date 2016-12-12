@@ -592,7 +592,7 @@ class Template {
 				return false;
 			}
 		}
-		return true;
+		return self::$loadedPlugin[$functionName];
 	}
 
 	/**
