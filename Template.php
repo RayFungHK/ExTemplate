@@ -1,16 +1,14 @@
 <?php
 define('EXTPL_DIR', dirname(__FILE__) . DIRECTORY_SEPARATOR);
-class Template {
-	static public $Assign = array();
-	static public $LoadedTemplate = array();
+class ExTemplate {
+	static public $LoadedExTemplate = array();
 	static private $GlobalAssign = array();
-	static private $TemplatePool = array();
-	static private $AssignCallback = array();
+	static private $ExTemplatePool = array();
 	static private $pluginDir = array();
 	static private $loadedPlugin = array();
 	static private $bindedPlugin = array();
 
-	private $assign = array();
+	private $storage = null;
 	private $tplName = '';
 	private $pointer = null;
 	private $lastQueuePointer = null;
@@ -20,8 +18,8 @@ class Template {
 	private $mapping = array();
 
 	/**
-	 * constructor, convert template file into TemplateStructure
-	 * 
+	 * constructor, convert template file into ExTemplateStructure
+	 *
 	 * @access public
 	 * @param string $tplPath
 	 * @param string $tplName (default: '')
@@ -39,26 +37,28 @@ class Template {
 			}
 		}
 
-		// Convert HTML to TemplateStructure
-		$rootTemplateBlock = new TemplateStructure($this, '_ROOT', $tplContent);
+		// Convert HTML to ExTemplateStructure
+		$rootExTemplateBlock = new ExTemplateStructure($this, '_ROOT', $tplContent);
 
 		// Create a new queue in Root block
-		$this->rootBlock = new TemplateQueue($rootTemplateBlock);
+		$this->rootBlock = new ExTemplateQueue($rootExTemplateBlock);
 
 		// Setup the template pointer
 		$this->pointer = $this->rootBlock;
 
 		// Add current template to loaded template pool
-		self::$LoadedTemplate[$this->tplName] = $this;
+		self::$LoadedExTemplate[$this->tplName] = $this;
+
+		$this->storage = new ExTemplateStorageData();
 	}
 
 	/**
 	 * Go to target block, syntax: (/?:Root)({a-z0-9_-}/*:blockName)([{a-z0-9_-/}+]:identifyName)?(/?:NextBlock)
 	 * Example: /blockA/blockB[identifyA]/blockC
-	 * 
+	 *
 	 * @access public
 	 * @param string $namespace
-	 * @return Template
+	 * @return ExTemplate
 	 */
 	public function gotoBlock($namespace) {
 		// Check the namespace is string or callback
@@ -89,7 +89,7 @@ class Template {
 					if ($blockPointer->getStructure()->hasBlock($path[2])) {
 						// Set the block pointer
 						$blockPointer->setPointer($path[2]);
-						
+
 						if ($path[4]) {
 							// Set the pointer as target queue by specified identify name
 							$blockPointer = $blockPointer->getQueue($path[4]);
@@ -121,12 +121,12 @@ class Template {
 
 
 	/**
-	 * Back to parent level queue, or you can provide specified block name 
+	 * Back to parent level queue, or you can provide specified block name
 	 * with identify name until the pointer reach to root
 	 *
 	 * @access public
 	 * @param string $namespace (default: '')
-	 * @return Template
+	 * @return ExTemplate
 	 */
 	public function parent($namespace = '') {
 		$namespace = trim($namespace);
@@ -166,10 +166,10 @@ class Template {
 
 	/**
 	 * Create new block into queue
-	 * 
+	 *
 	 * @access public
 	 * @param string $identifyName (default: '')
-	 * @return Template
+	 * @return ExTemplate
 	 */
 	public function newBlock($identifyName = '') {
 		$this->lastQueuePointer = $this->pointer->addQueue($identifyName);
@@ -178,11 +178,11 @@ class Template {
 
 	/**
 	 * Create new block into queue after a block with specified idenetifyName
-	 * 
+	 *
 	 * @access public
 	 * @param string $targetIdentify
 	 * @param string $identifyName (default: '')
-	 * @return Template
+	 * @return ExTemplate
 	 */
 	public function newBlockAfter($targetIdentify, $identifyName = '') {
 		$this->lastQueuePointer = $this->pointer->addQueue($identifyName, $targetIdentify, 1);
@@ -191,11 +191,11 @@ class Template {
 
 	/**
 	 * Create new block into queue before a block with specified idenetifyName
-	 * 
+	 *
 	 * @access public
 	 * @param string $targetIdentify
 	 * @param string $identifyName (default: '')
-	 * @return Template
+	 * @return ExTemplate
 	 */
 	public function newBlockBefore($targetIdentify, $identifyName = '') {
 		$this->lastQueuePointer = $this->pointer->addQueue($identifyName, $targetIdentify, 0);
@@ -204,10 +204,10 @@ class Template {
 
 	/**
 	 * Set this template to PrintOut queue.
-	 * 
+	 *
 	 * @access public
 	 * @param mixed $enable
-	 * @return Template
+	 * @return ExTemplate
 	 */
 	public function setPostParse($enable) {
 		$this->isPostParse = ($enable) ? true : false;
@@ -216,7 +216,7 @@ class Template {
 
 	/**
 	 * Check the template is post-Parse or not
-	 * 
+	 *
 	 * @access public
 	 * @return bool
 	 */
@@ -226,7 +226,7 @@ class Template {
 
 	/**
 	 * Parse all queue into parse pool or export to specified variable
-	 * 
+	 *
 	 * @access public
 	 * @return string
 	 */
@@ -236,7 +236,7 @@ class Template {
 
 	/**
 	 * Get the parsed content
-	 * 
+	 *
 	 * @access public
 	 * @return bool
 	 */
@@ -248,11 +248,11 @@ class Template {
 	 * Assign to block current queue (Block Level)
 	 * If variable is a callback function, pass the current assign tag and
 	 * reassigned the tag value
-	 * 
+	 *
 	 * @access public
 	 * @param mixed $variable
 	 * @param string $value (default: '')
-	 * @return Template
+	 * @return ExTemplate
 	 */
 	public function assign($variable, $value = '') {
 		if (!$this->lastQueuePointer) {
@@ -265,11 +265,7 @@ class Template {
 
 		if (isset($this->lastQueuePointer)) {
 			if (!is_string($variable) && is_callable($variable)) {
-				echo $variable;
-				$newAssigned = $variable($this->lastQueuePointer->getAssigned());
-				if (is_array($newAssigned) && count($newAssigned)) {
-					return $this->assign($newAssigned);
-				}
+				call_user_func($this->lastQueuePointer->getStorage()->reflection($variable));
 			} else {
 				if (is_array($variable)) {
 					foreach ($variable as $tagName => $value) {
@@ -283,16 +279,23 @@ class Template {
 		return $this;
 	}
 
+	public function getStorage() {
+		if (!isset($this->storage)) {
+			$this->storage = new ExTemplateStorageData($this);
+		}
+		return $this->storage;
+	}
+
 	/**
 	 * Map the queue to mapping list
-	 * 
+	 *
 	 * @access public
 	 * @param string $path
-	 * @param TemplateQueue $instance
+	 * @param ExTemplateQueue $instance
 	 * @return void
 	 */
 	public function mapPath($path, $instance) {
-		if (is_a($instance, 'TemplateQueue')) {
+		if (is_a($instance, 'ExTemplateQueue')) {
 			if (!isset($this->mapping[$path])) {
 				$this->mapping[$path] = array();
 			}
@@ -303,13 +306,13 @@ class Template {
 
 	/**
 	 * Mount the target queue to pointer
-	 * 
+	 *
 	 * @access public
-	 * @param TemplateQueue $queue
-	 * @return Template
+	 * @param ExTemplateQueue $queue
+	 * @return ExTemplate
 	 */
 	public function mountQueue($queue) {
-		if (is_a($queue, 'TemplateQueue')) {
+		if (is_a($queue, 'ExTemplateQueue')) {
 			$this->pointer = $queue;
 			$this->lastQueuePointer = $this->pointer;
 		}
@@ -318,10 +321,10 @@ class Template {
 
 	/**
 	 * Find the target queues by namespace syntax
-	 * 
+	 *
 	 * @access public
 	 * @param string $namespace
-	 * @return TemplateQueuePack
+	 * @return ExTemplateQueuePack
 	 */
 	public function findBlock($namespace) {
 		$namespace = trim($namespace);
@@ -391,18 +394,18 @@ class Template {
 					}
 				}
 			}
-			return new TemplateQueuePack($this, $foundQueue);
+			return new ExTemplateQueuePack($this, $foundQueue);
 		}
-		return new TemplateQueuePack($this);
+		return new ExTemplateQueuePack($this);
 	}
 
 	/**
 	 * Assign tag to current file (File Level)
-	 * 
+	 *
 	 * @access public
 	 * @param mixed $variable
 	 * @param string $value (default: '')
-	 * @return Template
+	 * @return ExTemplate
 	 */
 	public function superAssign($variable, $value = '') {
 		if (is_array($variable)) {
@@ -410,40 +413,40 @@ class Template {
 				$this->superAssign($tagName, $value);
 			}
 		} else {
-			$this->assign[$variable] = $value;
+			$this->storage->assign($variable, $value);
 		}
 		return $this;
 	}
 
 	/**
 	 * Return file Level assigned value
-	 * 
+	 *
 	 * @access public
 	 * @param string $tagName
 	 * @return mixed
 	 */
-	public function getAssign($tagName) {
-		return (array_key_exists($tagName, $this->assign)) ? $this->assign[$tagName] : null;
+	public function getValue($tagName) {
+		return $this->storage->getValue($tagName);
 	}
 
 	/**
-	 * Return Template object by name
-	 * 
+	 * Return ExTemplate object by name
+	 *
 	 * @access public
 	 * @static
 	 * @param string $name
-	 * @return Template
+	 * @return ExTemplate
 	 */
-	static public function GetTemplate($name) {
-		if (isset(self::$LoadedTemplate[$name])) {
-			return self::$LoadedTemplate[$name];
+	static public function GetExTemplate($name) {
+		if (isset(self::$LoadedExTemplate[$name])) {
+			return self::$LoadedExTemplate[$name];
 		}
 		return null;
 	}
 
 	/**
 	 * Assign tag to global environment (Global Level)
-	 * 
+	 *
 	 * @access public
 	 * @static
 	 * @param mixed $variable
@@ -462,7 +465,7 @@ class Template {
 
 	/**
 	 * Return Global Level assigned value.
-	 * 
+	 *
 	 * @access public
 	 * @static
 	 * @param string $tagName
@@ -474,17 +477,17 @@ class Template {
 
 	/**
 	 * Print out the parsed content from template pool on screen
-	 * 
+	 *
 	 * @access public
 	 * @static
 	 * @return void
 	 */
 	static public function PrintOut() {
-		if (count(self::$LoadedTemplate)) {
-			foreach (self::$LoadedTemplate as $loadedTemplate) {
-				if ($loadedTemplate->isPostParse()) {
-					$loadedTemplate->setPostParse(false);
-					echo $loadedTemplate->parse();
+		if (count(self::$LoadedExTemplate)) {
+			foreach (self::$LoadedExTemplate as $loadedExTemplate) {
+				if ($loadedExTemplate->isPostParse()) {
+					$loadedExTemplate->setPostParse(false);
+					echo $loadedExTemplate->parse();
 				}
 			}
 		}
@@ -492,7 +495,7 @@ class Template {
 
 	/**
 	 * Bind the custom function for assign tag
-	 * 
+	 *
 	 * @access public
 	 * @static
 	 * @param string $type
@@ -513,7 +516,7 @@ class Template {
 
 	/**
 	 * Add plugin folder path to plugin directory list
-	 * 
+	 *
 	 * @access public
 	 * @static
 	 * @param string $path
@@ -530,7 +533,7 @@ class Template {
 		if ($path) {
 			$path = rtrim(preg_replace('/[\/\\\]+/', DIRECTORY_SEPARATOR, $path), DIRECTORY_SEPARATOR);
 
-			// Identify the path is relationship path from Template Class location or not
+			// Identify the path is relationship path from ExTemplate Class location or not
 			if ($path[0] == '.' || $path[0] == DIRECTORY_SEPARATOR) {
 				if (is_dir($path)) {
 					self::$loadedPlugin = array();
@@ -551,7 +554,7 @@ class Template {
 
 	/**
 	 * Check the plugin function is exists or not
-	 * 
+	 *
 	 * @access public
 	 * @static
 	 * @param string $type
@@ -592,14 +595,14 @@ class Template {
 				return false;
 			}
 		}
-		return self::$loadedPlugin[$functionName];
+		return true;
 	}
 
 	/**
 	 * Load plugin function from plugin directory list
 	 * If the plugin function not found or cannot be loaded, it will mark
 	 * the plugin function as loaded and no longer be searched
-	 * 
+	 *
 	 * @access public
 	 * @static
 	 * @param string $type
@@ -608,7 +611,7 @@ class Template {
 	 * @param array $parameters
 	 * @return mixed
 	 */
-	static public function LoadPlugin($type, $funcname, $parameters) {
+	static public function LoadPlugin($type, $funcname, $parameters, $data) {
 		if (empty(self::$pluginDir)) {
 			self::$pluginDir[EXTPL_DIR . 'extpl_plugins' . DIRECTORY_SEPARATOR] = true;
 		}
@@ -617,7 +620,7 @@ class Template {
 
 		// If plugin function not marked as loaded
 		if (isset(self::$bindedPlugin[$functionName])) {
-			$functionName = self::$bindedPlugin[$functionName];
+			$functionName = new ReflectionFunction(self::$bindedPlugin[$functionName]);
 		} elseif (!isset(self::$loadedPlugin[$functionName])) {
 			foreach (self::$pluginDir as $pluginDir => $var) {
 				// If the plugin file exists
@@ -646,11 +649,15 @@ class Template {
 			return '';
 		}
 
-		return call_user_func_array($functionName, $parameters);
+		if (is_string($functionName)) {
+			$functionName = new ReflectionFunction($functionName);
+		}
+		$functionName = $functionName->getClosure();
+		return call_user_func_array($data->reflection($functionName), $parameters);
 	}
 }
 
-class TemplateStructure {
+class ExTemplateStructure {
 	private $blockName = '';
 	private $blockType = 'BLOCK';
 	private $blockContent = array();
@@ -663,14 +670,14 @@ class TemplateStructure {
 
 	/**
 	 * constructor
-	 * 
+	 *
 	 * @access public
-	 * @param Template $templateContainer
+	 * @param ExTemplate $templateContainer
 	 * @param string $blockName
 	 * @param array $tplContent
 	 * @param int $offset (default: 0)
 	 * @param string $blockType (default: 'BLOCK')
-	 * @param TemplateStructure $parentBlock (default: null)
+	 * @param ExTemplateStructure $parentBlock (default: null)
 	 * @return void
 	 */
 	public function __construct($templateContainer, $blockName, $tplContent, $offset = 0, $blockType = 'BLOCK', $parentBlock = null) {
@@ -693,7 +700,7 @@ class TemplateStructure {
 			if (preg_match('/<!\-\- (START|END) ([a-z\_]+): (.+) \-\->/i', $tplContent[$index], $matches)) {
 				if ($matches[1] == 'START') {
 					// Create a template block under current block
-					$tplObject = new TemplateStructure($this->templateContainer, $matches[3], $tplContent, $index + 1, $matches[2], $this);
+					$tplObject = new ExTemplateStructure($this->templateContainer, $matches[3], $tplContent, $index + 1, $matches[2], $this);
 
 					$this->blockContent[$matches[3]] = $tplObject;
 					if (!isset($this->blockTypeMapping[$matches[2]])) {
@@ -723,7 +730,7 @@ class TemplateStructure {
 
 	/**
 	 * Return Structure Path
-	 * 
+	 *
 	 * @access public
 	 * @return string
 	 */
@@ -733,7 +740,7 @@ class TemplateStructure {
 
 	/**
 	 * Check the block is exists under template structure
-	 * 
+	 *
 	 * @access public
 	 * @param string $blockName
 	 * @param string $blockType (default: '')
@@ -748,7 +755,7 @@ class TemplateStructure {
 
 	/**
 	 * Check the block type is exists under template structure
-	 * 
+	 *
 	 * @access public
 	 * @param string $blockType
 	 * @return bool
@@ -759,10 +766,10 @@ class TemplateStructure {
 
 	/**
 	 * Reture the structure by specified name
-	 * 
+	 *
 	 * @access public
 	 * @param string $blockName
-	 * @return TemplateStructure
+	 * @return ExTemplateStructure
 	 */
 	public function getBlock($blockName) {
 		if (isset($this->blockContent[$blockName])) {
@@ -773,7 +780,7 @@ class TemplateStructure {
 
 	/**
 	 * Reture the block type
-	 * 
+	 *
 	 * @access public
 	 * @return string
 	 */
@@ -783,7 +790,7 @@ class TemplateStructure {
 
 	/**
 	 * Return stored block structure content
-	 * 
+	 *
 	 * @access public
 	 * @return string
 	 */
@@ -793,7 +800,7 @@ class TemplateStructure {
 
 	/**
 	 * Return the block is root or not
-	 * 
+	 *
 	 * @access public
 	 * @return bool
 	 */
@@ -803,7 +810,7 @@ class TemplateStructure {
 
 	/**
 	 * Return the block name
-	 * 
+	 *
 	 * @access public
 	 * @return string
 	 */
@@ -812,8 +819,8 @@ class TemplateStructure {
 	}
 
 	/**
-	 * Return the Template
-	 * 
+	 * Return the ExTemplate
+	 *
 	 * @access public
 	 * @return void
 	 */
@@ -822,10 +829,10 @@ class TemplateStructure {
 	}
 }
 
-class TemplateQueue {
+class ExTemplateQueue {
 	private $structure = null;
 	private $identifyName = '';
-	private $assign = array();
+	private $storage = null;
 	private $queue = array();
 	private $blockPointer = null;
 	private $pointerBlockName = null;
@@ -834,11 +841,11 @@ class TemplateQueue {
 
 	/**
 	 * constructor
-	 * 
+	 *
 	 * @access public
-	 * @param Template $structure
+	 * @param ExTemplate $structure
 	 * @param string $identifyName (default: '')
-	 * @param TemplateQueue $parentQueue (default: null)
+	 * @param ExTemplateQueue $parentQueue (default: null)
 	 * @return void
 	 */
 	public function __construct($structure, $identifyName = '', $parentQueue = null) {
@@ -854,11 +861,12 @@ class TemplateQueue {
 		if ($parentQueue) {
 			$this->parentQueue = $parentQueue;
 		}
+		$this->storage = new ExTemplateStorageData($this->structure->getContainer());
 	}
 
 	/**
 	 * Return the queue identify name.
-	 * 
+	 *
 	 * @access public
 	 * @return string
 	 */
@@ -867,20 +875,20 @@ class TemplateQueue {
 	}
 
 	/**
-	 * Return the assigned tag in this queue
-	 * 
+	 * Return ExTemplateStorageData from this queue
+	 *
 	 * @access public
-	 * @return void
+	 * @return ExTemplateStorageData
 	 */
-	public function getAssigned() {
-		return $this->assign;
+	public function getStorage() {
+		return $this->storage;
 	}
 
 	/**
 	 * Return the binded structure
-	 * 
+	 *
 	 * @access public
-	 * @return TemplateStructure
+	 * @return ExTemplateStructure
 	 */
 	public function getStructure() {
 		return $this->structure;
@@ -888,23 +896,23 @@ class TemplateQueue {
 
 	/**
 	 * Bind assign tag and value
-	 * 
+	 *
 	 * @access public
 	 * @param mixed $variable
 	 * @param mixed $value
-	 * @return TemplateQueue
+	 * @return ExTemplateQueue
 	 */
 	public function assignTag($variable, $value) {
-		$this->assign[$variable] = $value;
+		$this->storage->assign($variable, $value);
 		return $this;
 	}
 
 	/**
 	 * Set the block pointer
-	 * 
+	 *
 	 * @access public
 	 * @param string $blockName
-	 * @return TemplateQueue
+	 * @return ExTemplateQueue
 	 */
 	public function setPointer($blockName) {
 		if (!isset($this->queue[$blockName])) {
@@ -917,7 +925,7 @@ class TemplateQueue {
 
 	/**
 	 * Return all queues that the block pointer marked
-	 * 
+	 *
 	 * @access public
 	 * @return array
 	 */
@@ -927,9 +935,9 @@ class TemplateQueue {
 
 	/**
 	 * Return the queue that the queue pointer marked
-	 * 
+	 *
 	 * @access public
-	 * @return TemplateQueue
+	 * @return ExTemplateQueue
 	 */
 	public function getCurrentQueue() {
 		return $this->queuePointer;
@@ -937,7 +945,7 @@ class TemplateQueue {
 
 	/**
 	 * Return true if there is any queue exists in current block pointer
-	 * 
+	 *
 	 * @access public
 	 * @return bool
 	 */
@@ -947,10 +955,10 @@ class TemplateQueue {
 
 	/**
 	 * Return the last queue or the queue with specified identify name
-	 * 
+	 *
 	 * @access public
 	 * @param string $identifyName (default: '')
-	 * @return TemplateQueue
+	 * @return ExTemplateQueue
 	 */
 	public function getQueue($identifyName = '') {
 		if ($identifyName) {
@@ -965,9 +973,9 @@ class TemplateQueue {
 
 	/**
 	 * Return the parent queue
-	 * 
+	 *
 	 * @access public
-	 * @return TemplateQueue
+	 * @return ExTemplateQueue
 	 */
 	public function getParent() {
 		return $this->parentQueue;
@@ -976,7 +984,7 @@ class TemplateQueue {
 
 	/**
 	 * Check current queue is child of specified path with identify name
-	 * 
+	 *
 	 * @access public
 	 * @param string $path
 	 * @param string $blockName
@@ -995,13 +1003,13 @@ class TemplateQueue {
 
 	/**
 	 * Remove current queue from list, and no longer getting parsed
-	 * 
+	 *
 	 * @access public
-	 * @param TemplateQueue $queue
-	 * @return TemplateQueue
+	 * @param ExTemplateQueue $queue
+	 * @return ExTemplateQueue
 	 */
 	public function detach($queue) {
-		if (is_a($queue, 'TemplateQueue')) {
+		if (is_a($queue, 'ExTemplateQueue')) {
 			$idenetifyName = $queue->getIdentifyName();
 			$blockName = $queue->getStructure()->getBlockName();
 			if (isset($this->queue[$blockName][$idenetifyName])) {
@@ -1013,12 +1021,12 @@ class TemplateQueue {
 
 	/**
 	 * Create a new queue
-	 * 
+	 *
 	 * @access public
 	 * @param string $identifyName (default: '')
 	 * @param string $targetIdentify (default: '')
 	 * @param int $append (default: 1)
-	 * @return TemplateQueue
+	 * @return ExTemplateQueue
 	 */
 	public function addQueue($identifyName = '', $targetIdentify = '', $append = 1) {
 		// Trim the identify name
@@ -1027,7 +1035,7 @@ class TemplateQueue {
 		// If identify name not provided or not found in queue
 		if (!$identifyName || !isset($this->blockPointer[$identifyName])) {
 			// Create new template queue
-			$tq = new TemplateQueue($this->structure->getBlock($this->pointerBlockName), $identifyName, $this);
+			$tq = new ExTemplateQueue($this->structure->getBlock($this->pointerBlockName), $identifyName, $this);
 
 			// Set the queue to pointer
 			$this->queuePointer = $tq;
@@ -1069,7 +1077,7 @@ class TemplateQueue {
 
 	/**
 	 * Parse all queue as content
-	 * 
+	 *
 	 * @access public
 	 * @return string
 	 */
@@ -1094,7 +1102,7 @@ class TemplateQueue {
 		if (count($templateContent)) {
 			foreach ($templateContent as $identifyName => $content) {
 				// If the line is a template block object
-				if (is_a($content, 'TemplateStructure')) {
+				if (is_a($content, 'ExTemplateStructure')) {
 					// IFNOTEXISTS Block
 					// If there is no other block queued in same level, parse content
 					if ($content->getBlockType() == 'IFNOTEXISTS' && count($this->queue, COUNT_RECURSIVE) - count($this->queue) == 0) {
@@ -1121,10 +1129,10 @@ class TemplateQueue {
 			// Search function assign tag, pettern: {func_name( modifier="parameter")*}
 			$parsedContent = preg_replace_callback(
 				'/{(\w+)((\s\w+(?:=(?:\w+|(?:((?<![\\\\])[\'"])(?:(?:.(?!(?<![\\\\])\4))*.?)\4)))?)*)}/i',
-				function($matches) {	
+				function($matches) {
 					$clips_count = preg_match_all('/(\s(\w+)(?:=(?:\w+|(?:((?<![\\\\])[\'"])((?:.(?!(?<![\\\\])\3))*.?)\3)))?)/', $matches[2], $clips, PREG_SET_ORDER);
 					$funcname = $matches[1];
-					if (Template::PluginExists('function', $funcname)) {
+					if (ExTemplate::PluginExists('function', $funcname)) {
 						$parameters = array();
 						if (count($clips)) {
 							foreach ($clips as $clip) {
@@ -1140,92 +1148,99 @@ class TemplateQueue {
 								$parameters[$parameter] = $value;
 							}
 						}
-	
 						// Execute the assign tag function
-						return Template::LoadPlugin('function', $funcname, array($parameters));
+						return ExTemplate::LoadPlugin('function', $funcname, array($parameters), $this->getStorage());
 					}
-					return $matches[0];
 				},
 				$parsedContent
 			);
 
 			// Search variable assign tag, pettern: {$assign_tag(|modifier(:parameter)*)*}
-			$parsedContent = preg_replace_callback(
-				'/{\$(\w+)((\|\w+(?::(?:\w+|(?:((?<![\\\\])[\'"])(?:(?:.(?!(?<![\\\\])\4))*.?)\4)))?)*)}/i',
-				function($matches) {
-					$clips_count = preg_match_all('/\|(\w+)((?::(\w+|(?:((?<![\\\\])[\'"])((?:.(?!(?<![\\\\])\4))*.?)\4)))*)/', $matches[2], $clips, PREG_SET_ORDER);
-					$tagname = $matches[1];
-					$value = '';
-					
-					if (array_key_exists($tagname, $this->assign)) {
-						// Queue level assign
-						$value = $this->assign[$tagname];
-					} elseif (($result = $this->structure->getContainer()->getAssign($tagname)) !== null) {
-						// Template Container level assign
-						$value = $result;
-					} elseif (($result = Template::GetGlobalAssign($tagname)) !== null) {
-						// Global level assign
-						$value = $result;
-					} elseif ($clips_count == 0) {
-						return $matches[0];
-					}
-
-					// If assign tag includes function clips, start extract the clips
-					if ($clips_count) {
-						foreach ($clips as $clip) {
-							// Get the function name and parameters string
-							$funcname = $clip[1];
-							// Check the plugin is exists or not
-							if (Template::PluginExists('modifier', $funcname)) {
-								$parameters = array();
-								// Extract the parameters
-								if (isset($clip[2])) {
-									$clips_count = preg_match_all('/:(\w+|(?:((?<![\\\\])[\'"])((?:.(?!(?<![\\\\])\2))*.?)\2))/', $clip[2], $params, PREG_SET_ORDER);
-									foreach ($params as $match) {
-										if ($match[3] == 'true') {
-											$parameters[] = true;
-										} elseif ($match[3] == 'false') {
-											$parameters[] = false;
-										} elseif (isset($match[5])) {
-											$param = $match[5];
-											// If the parameter quoted by double quote, the string with backslashes
-											// that recognized by C-like \n, \r ..., octal and hexadecimal representation will be stripped off
-											if ($match[4] == '"') {
-												$param = stripcslashes($param);
-											}
-											$parameters[] = stripslashes($param);
-										} else {
-											$parameters[] = stripslashes($match[3]);
-										}
-									}
-								}
-								array_unshift($parameters, $value);
-								// Execute the assign tag function
-								$value = Template::LoadPlugin('modifier', $funcname, $parameters);
-							}
-						}
-					}
-					return $value;
-				},
-				$parsedContent
-			);
+			$parsedContent = $this->parseTag($parsedContent);
 			// Put back the parsed content to content pool
 			$parsedContent = str_replace(array_keys($readyParseBlock), array_values($readyParseBlock), $parsedContent);
 		}
 		return $parsedContent;
 	}
+
+	private function parseTag($parsedContent) {
+		return preg_replace_callback(
+			'/{\$(\w+)((\|\w+(?::(?:\w+|(?:((?<![\\\\])[\'"])(?:(?:.(?!(?<![\\\\])\4))*.?)\4))?)*)*)}/i',
+			function($matches) {
+				$clips_count = preg_match_all('/\|(\w+)((?::(\w+|(?:((?<![\\\\])[\'"])((?:.(?!(?<![\\\\])\4))*.?)\4))?)*)/', $matches[2], $clips, PREG_SET_ORDER);
+				$tagname = $matches[1];
+				$value = '';
+
+				if ($this->storage->hasVariable($tagname)) {
+					// Queue level assign
+					$value = $this->storage->getValue($tagname);
+				} elseif ($this->structure->getContainer()->getStorage()->hasVariable($tagname)) {
+					// File level assign
+					$value = $this->structure->getContainer()->getStorage()->getValue($tagname);
+				} elseif (($result = ExTemplate::GetGlobalAssign($tagname)) !== null) {
+					// Global level assign
+					$value = $result;
+				} elseif ($clips_count == 0) {
+					return $matches[0];
+				}
+
+				// If assign tag includes function clips, start extract the clips
+				if ($clips_count) {
+					foreach ($clips as $clip) {
+						// Get the function name and parameters string
+						$funcname = $clip[1];
+						// Check the plugin is exists or not
+						if (ExTemplate::PluginExists('modifier', $funcname)) {
+							$parameters = array();
+							// Extract the parameters
+							if (isset($clip[2])) {
+								$clips_count = preg_match_all('/:(\w+|(?:((?<![\\\\])[\'"])((?:.(?!(?<![\\\\])\2))*.?)\2))?/', $clip[2], $params, PREG_SET_ORDER);
+								foreach ($params as $match) {
+									if (!isset($match[1])) {
+										$parameters[] = null;
+									} else {
+										if ($match[1] == 'true') {
+											$parameters[] = true;
+										} elseif ($match[1] == 'false') {
+											$parameters[] = false;
+										} elseif (isset($match[3])) {
+											$param = $match[3];
+											// If the parameter quoted by double quote, the string with backslashes
+											// that recognized by C-like \n, \r ..., octal and hexadecimal representation will be stripped off
+											if ($match[2] == '"') {
+												$param = stripcslashes($param);
+											}
+											$parameters[] = stripslashes($param);
+										} else {
+											$parameters[] = stripslashes($match[1]);
+										}
+									}
+								}
+							}
+							array_unshift($parameters, $value);
+							// Execute the assign tag function
+							$value = ExTemplate::LoadPlugin('modifier', $funcname, $parameters, $this->getStorage());
+							$value = $this->parseTag($value);
+						}
+					}
+				}
+				return $value;
+			},
+			$parsedContent
+		);
+	}
 }
 
-class TemplateQueuePack {
+class ExTemplateQueuePack {
 	private $queues = array();
 	private $templateContainer = null;
 	private $indexQueues = null;
 
 	/**
 	 * constructor
-	 * 
+	 *
 	 * @access public
-	 * @param Template $templateContainer
+	 * @param ExTemplate $templateContainer
 	 * @param mixed $queues (default: array())
 	 * @return void
 	 */
@@ -1236,7 +1251,7 @@ class TemplateQueuePack {
 
 	/**
 	 * Assign tag to all queue
-	 * 
+	 *
 	 * @access public
 	 * @param mixed $variable
 	 * @param mixed $value (default: '')
@@ -1245,12 +1260,7 @@ class TemplateQueuePack {
 	public function assign($variable, $value = '') {
 		if (!is_string($variable) && is_callable($variable)) {
 			foreach ($this->queues as $queue) {
-				$newAssigned = $variable($queue->getAssigned());
-				if (is_array($newAssigned) && count($newAssigned)) {
-					foreach ($newAssigned as $tagName => $value) {
-						$queue->assignTag($tagName, $value);
-					}
-				}
+				call_user_func($queue->getStorage()->reflection($variable));
 			}
 		} else {
 			if (is_array($variable)) {
@@ -1268,10 +1278,10 @@ class TemplateQueuePack {
 
 	/**
 	 * Mount the specified queue by identify name
-	 * 
+	 *
 	 * @access public
 	 * @param string $idenetifyName
-	 * @return TemplateQueuePack
+	 * @return ExTemplateQueuePack
 	 */
 	public function mountQueueByIdentify($idenetifyName) {
 		if (isset($this->queues[$idenetifyName])) {
@@ -1282,10 +1292,10 @@ class TemplateQueuePack {
 
 	/**
 	 * Mount the specified queue by index
-	 * 
+	 *
 	 * @access public
 	 * @param int $index
-	 * @return TemplateQueuePack
+	 * @return ExTemplateQueuePack
 	 */
 	public function mountQueueByIndex($index) {
 		$index = intval($index);
@@ -1299,10 +1309,10 @@ class TemplateQueuePack {
 	}
 
 	/**
-	 * Mount the first queue as current TemplateQueue
-	 * 
+	 * Mount the first queue as current ExTemplateQueue
+	 *
 	 * @access public
-	 * @return TemplateQueuePack
+	 * @return ExTemplateQueuePack
 	 */
 	public function mountQueue() {
 		if (count($this->queues)) {
@@ -1313,7 +1323,7 @@ class TemplateQueuePack {
 
 	/**
 	 * Detach all queue
-	 * 
+	 *
 	 * @access public
 	 * @return void
 	 */
@@ -1329,24 +1339,24 @@ class TemplateQueuePack {
 
 	/**
 	 * Get the specified queue by idenetify name
-	 * 
+	 *
 	 * @access public
 	 * @param string $idenetifyName
-	 * @return TemplateQueuePack
+	 * @return ExTemplateQueuePack
 	 */
 	public function getQueueByIdentify($idenetifyName) {
 		if (isset($this->queues[$idenetifyName])) {
-			return new TemplateQueuePack($this->templateContainer, $this->queues[$idenetifyName]);
+			return new ExTemplateQueuePack($this->templateContainer, $this->queues[$idenetifyName]);
 		}
-		return new TemplateQueuePack($this->templateContainer);
+		return new ExTemplateQueuePack($this->templateContainer);
 	}
 
 	/**
 	 * Get the specified queue by index
-	 * 
+	 *
 	 * @access public
 	 * @param int $index
-	 * @return TemplateQueuePack
+	 * @return ExTemplateQueuePack
 	 */
 	public function getQueueByIndex($index) {
 		$index = intval($index);
@@ -1354,9 +1364,95 @@ class TemplateQueuePack {
 			$this->indexQueues = array_values($this->queues);
 		}
 		if (isset($this->indexQueues[$index])) {
-			return new TemplateQueuePack($this->templateContainer, $this->indexQueues[$index]);
+			return new ExTemplateQueuePack($this->templateContainer, $this->indexQueues[$index]);
 		}
-		return new TemplateQueuePack($this->templateContainer);
+		return new ExTemplateQueuePack($this->templateContainer);
+	}
+}
+
+class ExTemplateStorageData {
+	private $templateContainer = null;
+	private $storage = array();
+	private $isContainer = false;
+
+	/**
+	 * ExTemplateStorageData constructor
+	 *
+	 * @access public
+	 * @param ExTemplate $templateContainer
+	 * @param array $default (default: array())
+	 * @return void
+	 */
+	public function __construct($templateContainer = null, $default = array()) {
+		$this->templateContainer = $templateContainer;
+		if (is_array($default)) {
+			$this->storage = $default;
+		}
+	}
+
+	/**
+	 * Assign value to storage
+	 *
+	 * @access public
+	 * @param mixed $variable
+	 * @param string $value (default: '')
+	 * @return TenplateStorageData
+	 */
+	public function assign($variable, $value = '') {
+		if (is_array($variable)) {
+			foreach ($variable as $tagName => $value) {
+				$this->assign($tagName, $value);
+			}
+		} else {
+			$this->storage[$variable] = $value;
+		}
+		return $this;
+	}
+
+	/**
+	 * Check the variable exists or not
+	 *
+	 * @access public
+	 * @param string $variable
+	 * @return bool
+	 */
+	public function hasVariable($variable) {
+		return array_key_exists($variable, $this->storage);
+	}
+
+	/**
+	 * Get the value from storage
+	 *
+	 * @access public
+	 * @param string $variable
+	 * @return mixed
+	 */
+	public function getValue($variable) {
+		return (array_key_exists($variable, $this->storage)) ? $this->storage[$variable] : null;
+	}
+
+	/**
+	 * Get the ExTemplate Storage (Super Assign Level).
+	 *
+	 * @access public
+	 * @return ExTemplateStorageData
+	 */
+	public function getContainerStorage() {
+		if (!$this->templateContainer) {
+			return $this;
+		}
+		return $this->templateContainer->getStorage();
+	}
+
+	/**
+	 * Get the relection closure function that binded with ExTemplateStorageData
+	 *
+	 * @access public
+	 * @param callback $callback
+	 * @return callback
+	 */
+	public function reflection($callback) {
+		return $callback->bindTo($this);
 	}
 }
 ?>
